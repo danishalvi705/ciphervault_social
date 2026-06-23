@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 import httpx
-from telegram import Bot, Update
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # Import for the new reliable Recorder
@@ -48,40 +48,47 @@ class PublishRequest(BaseModel):
 
 # --- Core Capture Logic ---
 async def process_video_task(signal: SignalPayload | None, chat_id: int | None = None):
-    """Captures dashboard and sends it to Telegram."""
+    """Captures dashboard and sends it to Telegram with fallback caption logic."""
     signal_id = signal.id if signal else "manual"
     video_path = VIDEO_DIR / f"{signal_id}.mp4"
     
     async with render_semaphore:
         try:
-            logger.info("DEBUG: Launching full-viewport browser capture...")
+            logger.info(f"DEBUG: Starting capture for {signal_id}...")
             await capture_signal_video("http://168.144.131.132:8000/", str(video_path))
             
             if not video_path.exists():
-                raise FileNotFoundError("Video recording failed to generate file.")
+                raise FileNotFoundError("Recorder finished, but no video file was found.")
 
             if telegram_app and telegram_app.bot:
-                # 1. Cast to int to prevent ID errors
+                # 1. Determine Chat ID
+                if not TELEGRAM_CHAT_ID and not chat_id:
+                    raise ValueError("TELEGRAM_CHAT_ID not configured.")
                 target_chat = int(chat_id or TELEGRAM_CHAT_ID)
                 
-                # 2. Build PLAIN TEXT caption (No Markdown characters)
-                if signal:
-                    # Replacing potentially problematic characters
-                    clean_symbol = str(signal.symbol).replace("_", "-").replace("*", "")
-                    clean_side = str(signal.side).upper()
-                    caption = f"SIGNAL: {clean_symbol} {clean_side}\nScore: {signal.score}"
-                else:
-                    caption = "Snapshot requested."
+                # 2. Build Caption
+                caption = f"SIGNAL: {str(signal.symbol).replace('_', '-')} {str(signal.side).upper()}\nScore: {signal.score}" if signal else "Snapshot requested."
                 
-                logger.info(f"DEBUG: Attempting to send video to {target_chat} with caption: {caption}")
+                logger.info(f"DEBUG: Sending to {target_chat} with caption: {caption}")
 
-                # 3. Send via native method without parse_mode
+                # 3. Send with Fallback
                 with open(video_path, "rb") as video_file:
-                    await telegram_app.bot.send_video(
-                        chat_id=target_chat,
-                        video=video_file,
-                        caption=caption
-                    )
+                    try:
+                        await telegram_app.bot.send_video(
+                            chat_id=target_chat,
+                            video=video_file,
+                            caption=caption
+                        )
+                    except Exception as e:
+                        logger.warning(f"Caption send failed: {e}. Retrying without caption...")
+                        # Reset file pointer to beginning
+                        video_file.seek(0)
+                        await telegram_app.bot.send_video(
+                            chat_id=target_chat,
+                            video=video_file,
+                            caption=None # Send without caption
+                        )
+                
                 logger.info("Video successfully sent to Telegram.")
         
         except Exception as e:
