@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 import httpx
-from telegram import Update
+from telegram import Update, InputFile
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # Import for the new reliable Recorder
@@ -48,7 +48,7 @@ class PublishRequest(BaseModel):
 
 # --- Core Capture Logic ---
 async def process_video_task(signal: SignalPayload | None, chat_id: int | None = None):
-    """Captures dashboard and sends it to Telegram with fallback caption logic."""
+    """Captures dashboard and sends it to Telegram with explicit parameter handling."""
     signal_id = signal.id if signal else "manual"
     video_path = VIDEO_DIR / f"{signal_id}.mp4"
     
@@ -57,40 +57,39 @@ async def process_video_task(signal: SignalPayload | None, chat_id: int | None =
             logger.info(f"DEBUG: Starting capture for {signal_id}...")
             await capture_signal_video("http://168.144.131.132:8000/", str(video_path))
             
-            if not video_path.exists():
-                raise FileNotFoundError("Recorder finished, but no video file was found.")
+            if not video_path.exists() or video_path.stat().st_size == 0:
+                raise FileNotFoundError("Recorder finished, but no video file was found or it is empty.")
 
             if telegram_app and telegram_app.bot:
-                # 1. Determine Chat ID
-                if not TELEGRAM_CHAT_ID and not chat_id:
-                    raise ValueError("TELEGRAM_CHAT_ID not configured.")
                 target_chat = int(chat_id or TELEGRAM_CHAT_ID)
                 
-                # 2. Build Caption
-                caption = f"SIGNAL: {str(signal.symbol).replace('_', '-')} {str(signal.side).upper()}\nScore: {signal.score}" if signal else "Snapshot requested."
+                # Build the caption ONLY if signal exists
+                caption = None
+                if signal:
+                    caption = f"SIGNAL: {str(signal.symbol).replace('_', '-')} {str(signal.side).upper()}\nScore: {signal.score}"
                 
-                logger.info(f"DEBUG: Sending to {target_chat} with caption: {caption}")
+                logger.info(f"DEBUG: Sending file to {target_chat}")
 
-                # 3. Send with Fallback
-                with open(video_path, "rb") as video_file:
-                    try:
-                        await telegram_app.bot.send_video(
-                            chat_id=target_chat,
-                            video=video_file,
-                            caption=caption
-                        )
-                    except Exception as e:
-                        logger.warning(f"Caption send failed: {e}. Retrying without caption...")
-                        # Reset file pointer to beginning
-                        video_file.seek(0)
-                        await telegram_app.bot.send_video(
-                            chat_id=target_chat,
-                            video=video_file,
-                            caption=None # Send without caption
-                        )
+                # Build arguments for send_video
+                # We use a dictionary to only pass 'caption' if it is not None/Empty
+                send_args = {
+                    "chat_id": target_chat,
+                    "video": open(video_path, "rb")
+                }
                 
-                logger.info("Video successfully sent to Telegram.")
-        
+                if caption and len(caption.strip()) > 0:
+                    send_args["caption"] = caption
+                    send_args["parse_mode"] = None # Avoid markdown parsing issues entirely
+
+                # Send
+                try:
+                    await telegram_app.bot.send_video(**send_args)
+                    logger.info("Video successfully sent to Telegram.")
+                finally:
+                    # Close the file manually since we opened it via open()
+                    if "video" in send_args:
+                        send_args["video"].close()
+
         except Exception as e:
             logger.error(f"CRITICAL TASK ERROR: {e}")
             logger.error(traceback.format_exc())
@@ -119,7 +118,6 @@ async def startup():
         logger.info("Telegram Bot Initialized.")
 
 # --- Endpoints ---
-
 @app.post("/telegram-webhook")
 async def telegram_webhook(request: Request):
     global telegram_app
