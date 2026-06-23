@@ -62,9 +62,9 @@ async def process_video_task(signal: SignalPayload, ohlcv: list[list[float]]):
                 for p in [chart_png, frame_png]:
                     if p.exists(): p.unlink()
             else:
-                # --- SNAP MODE ---
+                # --- SNAP MODE (Updated to external IP) ---
                 await capture_signal_video(
-                    dashboard_url="http://localhost:10000/dashboard", 
+                    dashboard_url="http://168.144.131.132:8000/", 
                     selector=".signal-card-active", 
                     output_path=str(video_path)
                 )
