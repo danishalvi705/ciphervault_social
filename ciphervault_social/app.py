@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 import logging
 import traceback
+import gc  # Added for memory management
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -20,9 +21,6 @@ logger = logging.getLogger("ciphervault-social-render")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-
-if not WEBHOOK_SECRET:
-    logger.error("WARNING: WEBHOOK_SECRET is not set in Environment Variables!")
 
 # Ensure temp directory exists
 VIDEO_DIR = Path("/tmp/videos")
@@ -44,67 +42,70 @@ class PublishRequest(BaseModel):
     signal: SignalPayload
     ohlcv: list[list[float]]
 
-# --- Background Task (The heavy lifting) ---
+# --- Background Task (Heavy Lifting) ---
 async def process_video_task(signal: SignalPayload, ohlcv: list[list[float]]):
     chart_png = VIDEO_DIR / f"{signal.id}_chart.png"
     frame_png = VIDEO_DIR / f"{signal.id}_frame.png"
     video_path = VIDEO_DIR / f"{signal.id}.mp4"
     
     try:
-        logger.info(f"Starting background synthesis for {signal.id}")
+        logger.info(f"TASK START: {signal.id}")
         
-        # 1. Generate Assets
+        # 1. Render Chart
         render_signal_chart(ohlcv, signal.symbol, signal.side, signal.entry, signal.sl, signal.tp, str(chart_png))
-        compose_frame(str(chart_png), signal.symbol, signal.side, signal.entry, signal.sl, signal.tp, signal.rr, signal.score, str(frame_png))
-        synthesize_short(str(frame_png), str(video_path))
+        gc.collect() # Force memory release
+        logger.info("Rendered Chart")
 
-        # 2. Send to Telegram
+        # 2. Compose Frame
+        compose_frame(str(chart_png), signal.symbol, signal.side, signal.entry, signal.sl, signal.tp, signal.rr, signal.score, str(frame_png))
+        gc.collect() # Force memory release
+        logger.info("Composed Frame")
+        
+        # 3. Synthesize Video
+        synthesize_short(str(frame_png), str(video_path))
+        gc.collect() # Force memory release
+        logger.info("Synthesized Video")
+
+        # 4. Send to Telegram
         if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-            caption = (
-                f"🚨 *{signal.symbol}* {signal.side.upper()}\n"
-                f"Entry: `{signal.entry}` | SL: `{signal.sl}` | TP: `{signal.tp}`\n"
-                f"R:R: `{signal.rr:.2f}` | Score: `{signal.score}`"
-            )
-            
             async with httpx.AsyncClient() as client:
                 with open(video_path, "rb") as f:
                     await client.post(
                         f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo",
-                        data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"},
+                        data={
+                            "chat_id": TELEGRAM_CHAT_ID, 
+                            "caption": f"🚨 *{signal.symbol}* {signal.side.upper()}\nEntry: `{signal.entry}` | Score: `{signal.score}`", 
+                            "parse_mode": "Markdown"
+                        },
                         files={"video": f},
                         timeout=60
                     )
-            logger.info(f"Sent {signal.symbol} to Telegram successfully")
-        else:
-            logger.warning("Telegram credentials missing, skipping upload.")
-
+            logger.info(f"Sent {signal.symbol} to Telegram")
+        
     except Exception as e:
-        logger.error(f"Critical error in background task: {e}")
+        logger.error(f"CRITICAL ERROR: {e}")
         logger.error(traceback.format_exc())
 
     finally:
-        # 3. CRITICAL: Cleanup temp files to prevent OOM / Disk Full
+        # Cleanup
         for p in [chart_png, frame_png, video_path]:
-            if p.exists():
-                p.unlink()
-                logger.info(f"Cleaned up {p.name}")
+            if p.exists(): p.unlink()
+        gc.collect()
+        logger.info(f"Cleanup finished for {signal.id}")
 
 # --- API Routes ---
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
+@app.head("/", include_in_schema=False)
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 @app.post("/publish")
 def publish(req: PublishRequest, background_tasks: BackgroundTasks, x_webhook_secret: str = Header(default="")):
-    # Verify Secret
     if x_webhook_secret != WEBHOOK_SECRET:
         raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
-    logger.info(f"Queuing publish request for {req.signal.symbol} ({req.signal.id})")
-    
-    # Offload work to background
+    logger.info(f"Queuing request for {req.signal.symbol}")
     background_tasks.add_task(process_video_task, req.signal, req.ohlcv)
-    
-    return {"status": "queued", "signal_id": req.signal.id}
+    return {"status": "queued"}
