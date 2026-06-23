@@ -26,11 +26,19 @@ async def capture_signal_video(dashboard_url: str, output_path: str):
         try:
             print(f"Navigating to {dashboard_url}...")
             await page.goto(dashboard_url, timeout=60000, wait_until="domcontentloaded")
-            
-            selector = ".signal-card" 
-            print(f"Waiting for {selector} to render...")
-            await page.wait_for_selector(selector, state="visible", timeout=30000)
-            
+
+            # Try to wait for signal cards first, fall back to network idle
+            try:
+                await page.wait_for_selector(".signal-card", state="visible", timeout=15000)
+                print("Signal cards loaded.")
+            except Exception:
+                print("No .signal-card found within 15s, falling back to networkidle...")
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=20000)
+                    print("Network idle reached.")
+                except Exception:
+                    print("networkidle timeout too — proceeding anyway.")
+
             # Allow charts/animations to stabilize
             await asyncio.sleep(4)
             
@@ -44,7 +52,7 @@ async def capture_signal_video(dashboard_url: str, output_path: str):
             raise e
             
         finally:
-            # FIXED: await page.video.path() — it's async, was missing await before
+            # FIXED: await page.video.path() — it's async
             video_file = await page.video.path() if page.video else None
             await context.close()
             await browser.close()
