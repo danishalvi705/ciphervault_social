@@ -48,35 +48,34 @@ class PublishRequest(BaseModel):
 
 # --- Core Capture Logic ---
 async def process_video_task(signal: SignalPayload | None, chat_id: int | None = None):
+    # 1. Define the path clearly as a string/Path object
     signal_id = signal.id if signal else "manual"
-    # Ensure this is a proper Path object
     video_path = Path(VIDEO_DIR) / f"{signal_id}.mp4"
     
-    logger.info(f"DEBUG: Starting task for {signal_id}")
+    logger.info(f"DEBUG: Task started. Path: {video_path}")
     
     async with render_semaphore:
         try:
-            # 1. Capture
+            # 2. Perform the capture
+            # Ensure capture_signal_video writes to the file at video_path
             await capture_signal_video("http://168.144.131.132:8000/", str(video_path))
             
-            # 2. Path Validation
+            # 3. Verify file exists (This checks the path object, not a coroutine)
             if not video_path.exists():
-                raise FileNotFoundError(f"Video file missing at {video_path}")
+                raise FileNotFoundError(f"Recorder failed to create file at {video_path}")
             
-            # 3. Size Validation (Fixes the stat error)
+            # 4. Check file size (stat is now safe because video_path is definitely a Path)
             file_size = video_path.stat().st_size
-            logger.info(f"DEBUG: File verified. Size: {file_size} bytes")
+            logger.info(f"DEBUG: File size: {file_size} bytes")
             
             if file_size < 1000:
-                raise ValueError("Video file is corrupt/too small.")
+                raise ValueError("Video file is corrupt (too small).")
 
-            # 4. Sending
+            # 5. Sending
             if telegram_app and telegram_app.bot:
                 target_chat = int(chat_id or TELEGRAM_CHAT_ID)
                 
-                # Use InputFile for safe upload
                 with open(video_path, "rb") as video_file:
-                    # Construct arguments dynamically to avoid empty caption errors
                     send_args = {
                         "chat_id": target_chat,
                         "video": InputFile(video_file)
@@ -93,9 +92,10 @@ async def process_video_task(signal: SignalPayload | None, chat_id: int | None =
         except Exception as e:
             error_msg = f"CRITICAL ERROR: {str(e)}"
             logger.error(error_msg)
+            # Log traceback for deeper debugging in your server logs
             logger.error(traceback.format_exc())
             
-            # Attempt to inform the chat of the error
+            # Try to report to Telegram
             if chat_id and telegram_app and telegram_app.bot:
                 try:
                     await telegram_app.bot.send_message(chat_id=chat_id, text=error_msg[:100])
@@ -111,7 +111,8 @@ async def process_video_task(signal: SignalPayload | None, chat_id: int | None =
 # --- Telegram Bot Handler ---
 async def start_snap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📸 Recording dashboard... 10 seconds.")
-    await process_video_task(None, chat_id=update.effective_chat.id)
+    # Use create_task to avoid blocking the bot response
+    asyncio.create_task(process_video_task(None, chat_id=update.effective_chat.id))
 
 @app.on_event("startup")
 async def startup():
@@ -146,7 +147,6 @@ def publish(req: PublishRequest, background_tasks: BackgroundTasks, x_webhook_se
     if not WEBHOOK_SECRET or x_webhook_secret != WEBHOOK_SECRET:
         raise HTTPException(status_code=401, detail="Invalid webhook secret")
     
-    # Simple threshold filter
     try:
         if float(req.signal.score) < 4.0:
             return {"status": "ignored"}
