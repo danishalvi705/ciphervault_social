@@ -29,7 +29,7 @@ VIDEO_DIR.mkdir(exist_ok=True)
 render_semaphore = asyncio.Semaphore(1)
 
 app = FastAPI(title="CipherVault Social Render Service")
-telegram_app = None # Global variable to store the bot instance
+telegram_app = None 
 
 # --- Models ---
 class SignalPayload(BaseModel):
@@ -57,22 +57,30 @@ async def process_video_task(signal: SignalPayload | None, chat_id: int | None =
             logger.info("DEBUG: Launching full-viewport browser capture...")
             await capture_signal_video("http://168.144.131.132:8000/", str(video_path))
             
-            # Ensure the file exists before sending
             if not video_path.exists():
                 raise FileNotFoundError("Video recording failed to generate file.")
 
-            # Send to Telegram using the native library
             if telegram_app and telegram_app.bot:
-                target_chat = chat_id or TELEGRAM_CHAT_ID
-                caption = f"🚨 *{signal.symbol}* {signal.side.upper()}\nScore: `{signal.score}`" if signal else "Snapshot requested."
+                # 1. Cast to int to prevent ID errors
+                target_chat = int(chat_id or TELEGRAM_CHAT_ID)
                 
-                # Using the native send_video method (Fixes 400 Bad Request error)
+                # 2. Build PLAIN TEXT caption (No Markdown characters)
+                if signal:
+                    # Replacing potentially problematic characters
+                    clean_symbol = str(signal.symbol).replace("_", "-").replace("*", "")
+                    clean_side = str(signal.side).upper()
+                    caption = f"SIGNAL: {clean_symbol} {clean_side}\nScore: {signal.score}"
+                else:
+                    caption = "Snapshot requested."
+                
+                logger.info(f"DEBUG: Attempting to send video to {target_chat} with caption: {caption}")
+
+                # 3. Send via native method without parse_mode
                 with open(video_path, "rb") as video_file:
                     await telegram_app.bot.send_video(
                         chat_id=target_chat,
                         video=video_file,
-                        caption=caption,
-                        parse_mode="Markdown"
+                        caption=caption
                     )
                 logger.info("Video successfully sent to Telegram.")
         
@@ -111,7 +119,6 @@ async def telegram_webhook(request: Request):
     if not telegram_app:
         return {"status": "error", "message": "Bot not initialized"}
     
-    # Process update using the initialized application
     update = Update.de_json(await request.json(), telegram_app.bot)
     await telegram_app.process_update(update)
     return {"status": "ok"}
