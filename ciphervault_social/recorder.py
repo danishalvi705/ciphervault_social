@@ -25,13 +25,8 @@ async def capture_signal_video(dashboard_url: str, output_path: str):
 
         try:
             print(f"Navigating to {dashboard_url}...")
-            # Navigate and wait for basic load
             await page.goto(dashboard_url, timeout=60000, wait_until="domcontentloaded")
             
-            # --- CRITICAL FIX ---
-            # 'body' is too fast. Replace '.chart-container' with the actual class
-            # of your signal card, chart, or dashboard wrapper.
-            # You can check this by Inspecting the element in your browser.
             selector = ".signal-card" 
             print(f"Waiting for {selector} to render...")
             await page.wait_for_selector(selector, state="visible", timeout=30000)
@@ -44,18 +39,16 @@ async def capture_signal_video(dashboard_url: str, output_path: str):
             print("Recording finished.")
             
         except Exception as e:
-            # Capture the state of the page at the moment of failure
             await page.screenshot(path="/tmp/error_capture.png")
             print(f"FAILED. Error: {e}")
             raise e
             
         finally:
-            # Important: Get the path BEFORE closing the context
-            video_file = page.video.path() if page.video else None
+            # FIXED: await page.video.path() — it's async, was missing await before
+            video_file = await page.video.path() if page.video else None
             await context.close()
             await browser.close()
 
-            # Verify the file exists and is not empty before attempting to move
             if video_file and os.path.exists(video_file) and os.path.getsize(video_file) > 1024:
                 shutil.move(video_file, output_path)
                 print(f"Video saved successfully: {output_path}")
