@@ -64,7 +64,7 @@ async def process_video_task(signal: SignalPayload, ohlcv: list[list[float]]):
             else:
                 # --- SNAP MODE ---
                 await capture_signal_video(
-                    dashboard_url="http://localhost:8000/dashboard", 
+                    dashboard_url="http://localhost:10000/dashboard", 
                     selector=".signal-card-active", 
                     output_path=str(video_path)
                 )
