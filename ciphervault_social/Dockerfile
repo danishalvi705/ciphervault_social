@@ -4,6 +4,8 @@ FROM python:3.12-slim
 # slim base image and not installable via pip.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    zlib1g-dev \
+    libjpeg-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
