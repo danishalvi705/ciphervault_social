@@ -6,13 +6,16 @@ from playwright.async_api import async_playwright
 async def capture_signal_video(dashboard_url: str, output_path: str):
     temp_video_dir = "/tmp/playwright_videos"
     os.makedirs(temp_video_dir, exist_ok=True)
+    
+    # Clean up old temporary files just in case
+    for f in os.listdir(temp_video_dir):
+        os.remove(os.path.join(temp_video_dir, f))
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
         )
         
-        # Add a realistic User Agent to avoid being blocked by the server
         context = await browser.new_context(
             viewport={"width": 390, "height": 844}, 
             record_video_dir=temp_video_dir,
@@ -22,37 +25,40 @@ async def capture_signal_video(dashboard_url: str, output_path: str):
 
         try:
             print(f"Navigating to {dashboard_url}...")
-            # Do NOT rely on networkidle. Load the page simply.
-            await page.goto(dashboard_url, timeout=60000)
+            # Navigate and wait for basic load
+            await page.goto(dashboard_url, timeout=60000, wait_until="domcontentloaded")
             
             # --- CRITICAL FIX ---
-            # Replace '#app' or '.signal-card' with a unique class/ID found on your dashboard.
-            # Right-click the "CipherVault" title or a signal card in your browser -> Inspect
-            # and find a reliable selector.
-            print("Waiting for dashboard to render...")
-            await page.wait_for_selector("body", state="attached", timeout=30000)
+            # 'body' is too fast. Replace '.chart-container' with the actual class
+            # of your signal card, chart, or dashboard wrapper.
+            # You can check this by Inspecting the element in your browser.
+            selector = ".signal-card" 
+            print(f"Waiting for {selector} to render...")
+            await page.wait_for_selector(selector, state="visible", timeout=30000)
             
-            # Additional small wait to let JavaScript charts/animations settle
-            await asyncio.sleep(3)
+            # Allow charts/animations to stabilize
+            await asyncio.sleep(4)
             
             print("Recording started...")
             await asyncio.sleep(10)
             print("Recording finished.")
             
         except Exception as e:
-            # DEBUG: If it fails, take a screenshot so you can see the 404 error
-            error_file = "/tmp/error_capture.png"
-            await page.screenshot(path=error_file)
-            print(f"FAILED. Screenshot saved to {error_file}. Error: {e}")
+            # Capture the state of the page at the moment of failure
+            await page.screenshot(path="/tmp/error_capture.png")
+            print(f"FAILED. Error: {e}")
             raise e
             
         finally:
+            # Important: Get the path BEFORE closing the context
             video_file = page.video.path() if page.video else None
             await context.close()
             await browser.close()
 
-            if video_file and os.path.exists(video_file):
+            # Verify the file exists and is not empty before attempting to move
+            if video_file and os.path.exists(video_file) and os.path.getsize(video_file) > 1024:
                 shutil.move(video_file, output_path)
-                print(f"Video saved to {output_path}")
+                print(f"Video saved successfully: {output_path}")
             else:
-                print("No video file found.")
+                print("Error: No valid video file generated.")
+                raise FileNotFoundError("Video file was empty or missing.")
