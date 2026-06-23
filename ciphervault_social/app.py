@@ -1,36 +1,34 @@
-"""
-CipherVault Social — Render Webhook Service
-Receives signal + OHLCV data from the DO VPS, generates a video,
-saves it, and sends it to Telegram for manual download and posting.
-"""
-
 from __future__ import annotations
 import os
 import logging
+import traceback
 from pathlib import Path
-
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Header, HTTPException, BackgroundTasks
 from pydantic import BaseModel
+import httpx
 
+# Import your custom modules
 from chart_renderer import render_signal_chart
 from frame_composer import compose_frame
 from video_synth import synthesize_short
 
-import httpx
-
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ciphervault-social-render")
 
-WEBHOOK_SECRET = os.environ["WEBHOOK_SECRET"]
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+# Load Configuration
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+if not WEBHOOK_SECRET:
+    logger.error("WARNING: WEBHOOK_SECRET is not set in Environment Variables!")
+
+# Ensure temp directory exists
 VIDEO_DIR = Path("/tmp/videos")
 VIDEO_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="CipherVault Social Render Service")
-
 
 class SignalPayload(BaseModel):
     id: str
@@ -42,71 +40,71 @@ class SignalPayload(BaseModel):
     rr: float
     score: float | str
 
-
 class PublishRequest(BaseModel):
     signal: SignalPayload
     ohlcv: list[list[float]]
 
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.get("/video/{filename}")
-def download_video(filename: str):
-    path = VIDEO_DIR / filename
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Video not found")
-    return FileResponse(path, media_type="video/mp4", filename=filename)
-
-
-@app.post("/publish")
-def publish(req: PublishRequest, x_webhook_secret: str = Header(default="")):
-    if x_webhook_secret != WEBHOOK_SECRET:
-        raise HTTPException(status_code=401, detail="Invalid webhook secret")
-
-    signal = req.signal
-    logger.info(f"Received publish request for {signal.symbol} ({signal.id})")
-
+# --- Background Task (The heavy lifting) ---
+async def process_video_task(signal: SignalPayload, ohlcv: list[list[float]]):
+    chart_png = VIDEO_DIR / f"{signal.id}_chart.png"
+    frame_png = VIDEO_DIR / f"{signal.id}_frame.png"
+    video_path = VIDEO_DIR / f"{signal.id}.mp4"
+    
     try:
-        chart_png = str(VIDEO_DIR / f"{signal.id}_chart.png")
-        frame_png = str(VIDEO_DIR / f"{signal.id}_frame.png")
-        video_path = str(VIDEO_DIR / f"{signal.id}.mp4")
+        logger.info(f"Starting background synthesis for {signal.id}")
+        
+        # 1. Generate Assets
+        render_signal_chart(ohlcv, signal.symbol, signal.side, signal.entry, signal.sl, signal.tp, str(chart_png))
+        compose_frame(str(chart_png), signal.symbol, signal.side, signal.entry, signal.sl, signal.tp, signal.rr, signal.score, str(frame_png))
+        synthesize_short(str(frame_png), str(video_path))
 
-        render_signal_chart(
-            req.ohlcv, signal.symbol, signal.side,
-            signal.entry, signal.sl, signal.tp,
-            chart_png,
-        )
-        compose_frame(
-            chart_png, signal.symbol, signal.side,
-            signal.entry, signal.sl, signal.tp,
-            signal.rr, signal.score,
-            frame_png,
-        )
-        synthesize_short(frame_png, video_path)
-
-        # Send to Telegram
+        # 2. Send to Telegram
         if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
             caption = (
                 f"🚨 *{signal.symbol}* {signal.side.upper()}\n"
                 f"Entry: `{signal.entry}` | SL: `{signal.sl}` | TP: `{signal.tp}`\n"
-                f"R:R: `{signal.rr:.2f}` | Score: `{signal.score}`\n"
-                f"#CipherVault"
+                f"R:R: `{signal.rr:.2f}` | Score: `{signal.score}`"
             )
-            with open(video_path, "rb") as f:
-                httpx.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo",
-                    data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"},
-                    files={"video": f},
-                    timeout=60,
-                )
-            logger.info(f"Sent {signal.symbol} video to Telegram")
-
-        logger.info(f"Published {signal.symbol} ({signal.id}) successfully")
-        return {"status": "published", "signal_id": signal.id, "video": f"{signal.id}.mp4"}
+            
+            async with httpx.AsyncClient() as client:
+                with open(video_path, "rb") as f:
+                    await client.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo",
+                        data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"},
+                        files={"video": f},
+                        timeout=60
+                    )
+            logger.info(f"Sent {signal.symbol} to Telegram successfully")
+        else:
+            logger.warning("Telegram credentials missing, skipping upload.")
 
     except Exception as e:
-        logger.error(f"Failed to publish {signal.id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Critical error in background task: {e}")
+        logger.error(traceback.format_exc())
+
+    finally:
+        # 3. CRITICAL: Cleanup temp files to prevent OOM / Disk Full
+        for p in [chart_png, frame_png, video_path]:
+            if p.exists():
+                p.unlink()
+                logger.info(f"Cleaned up {p.name}")
+
+# --- API Routes ---
+
+@app.get("/")
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.post("/publish")
+def publish(req: PublishRequest, background_tasks: BackgroundTasks, x_webhook_secret: str = Header(default="")):
+    # Verify Secret
+    if x_webhook_secret != WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+    logger.info(f"Queuing publish request for {req.signal.symbol} ({req.signal.id})")
+    
+    # Offload work to background
+    background_tasks.add_task(process_video_task, req.signal, req.ohlcv)
+    
+    return {"status": "queued", "signal_id": req.signal.id}
