@@ -1,5 +1,5 @@
 # 1. Use the official Playwright Python image (includes Python and Browsers)
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.60.0-jammy
 
 # 2. Install system dependencies for your legacy rendering (ffmpeg, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
