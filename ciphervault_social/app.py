@@ -65,14 +65,23 @@ async def process_video_task(signal: SignalPayload, ohlcv: list[list[float]]):
                 for p in [chart_png, frame_png]:
                     if p.exists(): p.unlink()
             else:
-                # --- SNAP MODE ---
-                await capture_signal_video(
-                    dashboard_url="http://168.144.131.132:8000/", 
-                    selector=".signal-card-active", 
-                    output_path=str(video_path)
-                )
+                # --- SNAP MODE with Timeout Wrapper ---
+                try:
+                    logger.info(f"DEBUG: Launching browser capture for {signal.symbol} with 45s timeout...")
+                    await asyncio.wait_for(
+                        capture_signal_video(
+                            dashboard_url="http://168.144.131.132:8000/", 
+                            selector=".signal-card-active", 
+                            output_path=str(video_path)
+                        ),
+                        timeout=45.0
+                    )
+                    logger.info("DEBUG: Capture call completed successfully.")
+                except asyncio.TimeoutError:
+                    logger.error("CRITICAL: Capture timed out! The recorder hung for >45s.")
+                    raise Exception("Capture timed out")
             
-            logger.info(f"DEBUG: Capture finished. File exists: {video_path.exists()}")
+            logger.info(f"DEBUG: File check: {video_path.exists()}")
 
             # Send to Telegram
             if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
@@ -107,7 +116,6 @@ def publish(req: PublishRequest, background_tasks: BackgroundTasks, x_webhook_se
     if not WEBHOOK_SECRET or x_webhook_secret != WEBHOOK_SECRET:
         raise HTTPException(status_code=401, detail="Invalid webhook secret")
     
-    # --- FILTERING LOGIC ---
     try:
         if float(req.signal.score) < 4.0:
             logger.info(f"Skipping {req.signal.symbol} - Score {req.signal.score} too low.")
