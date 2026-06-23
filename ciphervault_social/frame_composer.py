@@ -1,97 +1,69 @@
-"""
-CipherVault Social — Frame Composer
-Composites the rendered chart onto a full 1080x1920 (9:16) canvas with
-branded header/footer text. Pure Pillow — deliberately avoids ImageMagick,
-since TextClip's ImageMagick dependency is a common source of headless-server
-breakage (policy.xml blocking text rendering by default on Ubuntu).
-"""
-
 from __future__ import annotations
 from pathlib import Path
-
 import matplotlib
 from PIL import Image, ImageDraw, ImageFont
 
 CANVAS_W, CANVAS_H = 1080, 1920
-BG = (13, 17, 23)
-PANEL = (22, 27, 34)
-GREEN = (63, 185, 80)
-RED = (248, 81, 73)
-BLUE = (88, 166, 255)
-GREY = (139, 148, 158)
-WHITE = (230, 237, 243)
+# Deep Institutional Dark Palette
+BG = (10, 10, 10)           # Near Black
+PANEL = (18, 18, 18)        # Slight separation
+TEXT_MAIN = (230, 237, 243) # Off-White
+TEXT_GREY = (140, 140, 140) # Muted text
+ACCENT_BLUE = (41, 121, 255)
+GREEN = (0, 200, 83)        # Institutional Green
+RED = (255, 82, 82)         # Institutional Red
 
-# Prefer JetBrains Mono (matches the dashboard); fall back to the
-# DejaVu Sans Mono that ships inside matplotlib so this never hard-fails
-# on a fresh server with no extra fonts installed.
 _MPL_FONT_DIR = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
-FONT_PATH_CANDIDATES = [
-    "/usr/share/fonts/truetype/jetbrains-mono/JetBrainsMono-Bold.ttf",
-    str(_MPL_FONT_DIR / "DejaVuSansMono-Bold.ttf"),
-]
-
+FONT_PATH = str(_MPL_FONT_DIR / "DejaVuSans-Bold.ttf") # Using standard fonts for stability
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont:
-    for path in FONT_PATH_CANDIDATES:
-        if Path(path).exists():
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
-
+    try:
+        return ImageFont.truetype(FONT_PATH, size)
+    except:
+        return ImageFont.load_default()
 
 def _fmt_price(v: float) -> str:
-    if v >= 100:
-        return f"{v:,.2f}"
-    if v >= 1:
-        return f"{v:,.4f}"
-    return f"{v:.6f}"
-
+    return f"{v:,.2f}" if v >= 100 else f"{v:,.4f}"
 
 def compose_frame(
-    chart_path: str,
-    symbol: str,
-    side: str,
-    entry: float,
-    sl: float,
-    tp: float,
-    rr: float,
-    score,
-    output_path: str,
+    chart_path: str, symbol: str, side: str, entry: float, sl: float, tp: float, rr: float, score, output_path: str
 ) -> str:
-    header_h, chart_h, gap = 220, 1000, 40
-    chart_y = header_h + gap
-    footer_y = chart_y + chart_h
-
+    # Layout Config
+    header_h, footer_h = 250, 450
+    chart_h = 1000
+    
     canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), BG)
     draw = ImageDraw.Draw(canvas)
-
-    # Header
-    draw.rectangle([0, 0, CANVAS_W, header_h], fill=PANEL)
     side_color = GREEN if side == "long" else RED
-    draw.text((40, 28), "CIPHERVAULT", font=_load_font(44), fill=BLUE)
-    draw.text((40, 92), symbol, font=_load_font(62), fill=WHITE)
-    draw.text((40, 162), f"{side.upper()}  ·  SCORE {score}", font=_load_font(32), fill=side_color)
 
-    # Chart
+    # 1. Header (Branding)
+    draw.rectangle([0, 0, CANVAS_W, header_h], fill=PANEL)
+    draw.rectangle([0, 0, 12, header_h], fill=side_color) # The "Signal" Accent Bar
+    
+    draw.text((50, 60), "CIPHERVAULT", font=_load_font(48), fill=ACCENT_BLUE)
+    draw.text((50, 130), f"{symbol}  |  {side.upper()}", font=_load_font(52), fill=TEXT_MAIN)
+    draw.text((50, 190), f"CONFIDENCE SCORE: {score}", font=_load_font(32), fill=TEXT_GREY)
+
+    # 2. Chart (Paste with clean padding)
     chart = Image.open(chart_path).convert("RGB").resize((CANVAS_W, chart_h))
-    canvas.paste(chart, (0, chart_y))
+    canvas.paste(chart, (0, header_h))
 
-    # Footer
+    # 3. Footer (Stats Card)
+    footer_y = header_h + chart_h
     draw.rectangle([0, footer_y, CANVAS_W, CANVAS_H], fill=PANEL)
-    font_label, font_value = _load_font(28), _load_font(38)
-    for i, (label, value, color) in enumerate(
-        [("ENTRY", entry, BLUE), ("SL", sl, RED), ("TP", tp, GREEN)]
-    ):
-        x = i * (CANVAS_W // 3) + 40
-        draw.text((x, footer_y + 30), label, font=font_label, fill=GREY)
-        draw.text((x, footer_y + 68), _fmt_price(value), font=font_value, fill=color)
+    
+    # Layout Stats
+    stats = [("ENTRY", entry), ("SL", sl), ("TP", tp)]
+    for i, (label, val) in enumerate(stats):
+        x = 60 + (i * 340)
+        draw.text((x, footer_y + 60), label, font=_load_font(30), fill=TEXT_GREY)
+        draw.text((x, footer_y + 110), _fmt_price(val), font=_load_font(46), fill=TEXT_MAIN)
 
-    draw.text((40, footer_y + 140), f"R:R   {rr:.2f}", font=font_value, fill=WHITE)
-    draw.text(
-        (40, CANVAS_H - 50),
-        "Not financial advice — for educational purposes only.",
-        font=_load_font(22),
-        fill=GREY,
-    )
+    # R:R and Disclaimer
+    draw.text((60, footer_y + 240), f"RISK:REWARD RATIO", font=_load_font(30), fill=TEXT_GREY)
+    draw.text((60, footer_y + 290), f"{rr:.2f}", font=_load_font(46), fill=ACCENT_BLUE)
+    
+    draw.text((60, CANVAS_H - 80), "NOT FINANCIAL ADVICE. FOR EDUCATIONAL PURPOSES ONLY.", font=_load_font(24), fill=TEXT_GREY)
 
     canvas.save(output_path)
     return output_path
