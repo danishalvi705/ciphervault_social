@@ -48,8 +48,7 @@ class PublishRequest(BaseModel):
 
 # --- Core Capture Logic ---
 async def process_video_task(signal: SignalPayload | None, chat_id: int | None = None):
-    """Captures dashboard and optionally sends to Telegram."""
-    # Use 'manual' if signal is None
+    """Captures dashboard and sends it to Telegram."""
     signal_id = signal.id if signal else "manual"
     video_path = VIDEO_DIR / f"{signal_id}.mp4"
     
@@ -58,23 +57,25 @@ async def process_video_task(signal: SignalPayload | None, chat_id: int | None =
             logger.info("DEBUG: Launching full-viewport browser capture...")
             await capture_signal_video("http://168.144.131.132:8000/", str(video_path))
             
-            # Send to Telegram
-            if TELEGRAM_BOT_TOKEN:
+            # Ensure the file exists before sending
+            if not video_path.exists():
+                raise FileNotFoundError("Video recording failed to generate file.")
+
+            # Send to Telegram using the native library
+            if telegram_app and telegram_app.bot:
                 target_chat = chat_id or TELEGRAM_CHAT_ID
-                if target_chat:
-                    async with httpx.AsyncClient() as client:
-                        with open(video_path, "rb") as f:
-                            caption = f"🚨 *{signal.symbol}* {signal.side.upper()}\nScore: `{signal.score}`" if signal else "Snapshot requested."
-                            await client.post(
-                                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo",
-                                data={
-                                    "chat_id": target_chat,
-                                    "caption": caption,
-                                    "parse_mode": "Markdown"
-                                },
-                                files={"video": f},
-                                timeout=60
-                            )
+                caption = f"🚨 *{signal.symbol}* {signal.side.upper()}\nScore: `{signal.score}`" if signal else "Snapshot requested."
+                
+                # Using the native send_video method (Fixes 400 Bad Request error)
+                with open(video_path, "rb") as video_file:
+                    await telegram_app.bot.send_video(
+                        chat_id=target_chat,
+                        video=video_file,
+                        caption=caption,
+                        parse_mode="Markdown"
+                    )
+                logger.info("Video successfully sent to Telegram.")
+        
         except Exception as e:
             logger.error(f"CRITICAL TASK ERROR: {e}")
             logger.error(traceback.format_exc())
@@ -86,19 +87,16 @@ async def process_video_task(signal: SignalPayload | None, chat_id: int | None =
 # --- Telegram Bot Handler ---
 async def start_snap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📸 Recording dashboard... 10 seconds.")
-    # Pass None for signal payload since this is a manual snap
     await process_video_task(None, chat_id=update.effective_chat.id)
 
 @app.on_event("startup")
 async def startup():
     global telegram_app
     if TELEGRAM_BOT_TOKEN:
-        # Build and Initialize the app ONCE
         telegram_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
         telegram_app.add_handler(CommandHandler("snap", start_snap))
         await telegram_app.initialize()
         
-        # Set Webhook
         if WEBHOOK_URL:
             async with httpx.AsyncClient() as client:
                 await client.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}/telegram-webhook")
