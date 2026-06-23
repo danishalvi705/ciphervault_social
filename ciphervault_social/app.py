@@ -5,10 +5,11 @@ import traceback
 import gc
 import asyncio
 from pathlib import Path
-from fastapi import FastAPI, Header, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Header, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 import httpx
+from telegram import Bot, Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # Import for the new reliable Recorder
 from recorder import capture_signal_video
@@ -21,13 +22,16 @@ logger = logging.getLogger("ciphervault-social-render")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL") # e.g., https://your-app.onrender.com
 
 VIDEO_DIR = Path("/tmp/videos")
 VIDEO_DIR.mkdir(exist_ok=True)
 render_semaphore = asyncio.Semaphore(1)
 
 app = FastAPI(title="CipherVault Social Render Service")
+bot = Bot(token=TELEGRAM_BOT_TOKEN) if TELEGRAM_BOT_TOKEN else None
 
+# --- Models ---
 class SignalPayload(BaseModel):
     id: str
     symbol: str
@@ -42,29 +46,26 @@ class PublishRequest(BaseModel):
     signal: SignalPayload
     ohlcv: list[list[float]]
 
-# --- The New Reliable Capture Task ---
-async def process_video_task(signal: SignalPayload, is_manual: bool = False):
-    logger.info(f"DEBUG: Starting task for {signal.id if signal else 'Manual Snap'}")
+# --- Core Capture Logic ---
+async def process_video_task(signal: SignalPayload, chat_id: int | None = None):
+    """Captures dashboard and optionally sends to Telegram."""
+    video_path = VIDEO_DIR / f"{signal.id if signal else 'manual'}.mp4"
+    
     async with render_semaphore:
-        video_path = VIDEO_DIR / f"{signal.id if signal else 'manual'}.mp4"
         try:
             logger.info("DEBUG: Launching full-viewport browser capture...")
-            # Using the new clean method: No selectors, just full screen capture
-            await capture_signal_video(
-                dashboard_url="http://168.144.131.132:8000/", 
-                output_path=str(video_path)
-            )
-            logger.info("DEBUG: Capture call completed successfully.")
+            await capture_signal_video("http://168.144.131.132:8000/", str(video_path))
             
-            # Send to Telegram only if it was an automatic signal (not a manual snap)
-            if not is_manual and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+            # Send to Telegram
+            if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+                target_chat = chat_id or TELEGRAM_CHAT_ID
                 async with httpx.AsyncClient() as client:
                     with open(video_path, "rb") as f:
                         await client.post(
                             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo",
                             data={
-                                "chat_id": TELEGRAM_CHAT_ID,
-                                "caption": f"🚨 *{signal.symbol}* {signal.side.upper()}\nScore: `{signal.score}`",
+                                "chat_id": target_chat,
+                                "caption": f"🚨 *{signal.symbol}* {signal.side.upper()}\nScore: `{signal.score}`" if signal else "Snapshot requested.",
                                 "parse_mode": "Markdown"
                             },
                             files={"video": f},
@@ -74,11 +75,33 @@ async def process_video_task(signal: SignalPayload, is_manual: bool = False):
             logger.error(f"CRITICAL TASK ERROR: {e}")
             logger.error(traceback.format_exc())
         finally:
-            if not is_manual and video_path.exists(): 
+            if video_path.exists(): 
                 video_path.unlink()
-                gc.collect()
+            gc.collect()
+
+# --- Telegram Bot Handler ---
+async def start_snap(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📸 Recording dashboard... 10 seconds.")
+    # We pass None for signal payload since this is a manual snap
+    await process_video_task(None, chat_id=update.effective_chat.id)
+
+@app.on_event("startup")
+async def startup():
+    if TELEGRAM_BOT_TOKEN and WEBHOOK_URL:
+        # Set the webhook automatically on startup
+        async with httpx.AsyncClient() as client:
+            await client.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}/telegram-webhook")
 
 # --- Endpoints ---
+
+@app.post("/telegram-webhook")
+async def telegram_webhook(request: Request):
+    bot_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    bot_app.add_handler(CommandHandler("snap", start_snap))
+    
+    update = Update.de_json(await request.json(), bot)
+    await bot_app.process_update(update)
+    return {"status": "ok"}
 
 @app.post("/publish")
 def publish(req: PublishRequest, background_tasks: BackgroundTasks, x_webhook_secret: str = Header(default="")):
@@ -93,11 +116,3 @@ def publish(req: PublishRequest, background_tasks: BackgroundTasks, x_webhook_se
 
     background_tasks.add_task(process_video_task, req.signal)
     return {"status": "queued"}
-
-@app.get("/snap")
-async def manual_snap():
-    """Trigger this from terminal: curl -o my_video.mp4 https://your-render-url.com/snap"""
-    output_path = VIDEO_DIR / "manual_snap.mp4"
-    # We await this to ensure the file is ready before returning
-    await capture_signal_video("http://168.144.131.132:8000/", str(output_path))
-    return FileResponse(path=str(output_path), media_type='video/mp4', filename='manual_snap.mp4')
