@@ -11,7 +11,7 @@ import httpx
 from telegram import Update, InputFile
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Import for the new reliable Recorder
+# Import the recorder
 from recorder import capture_signal_video
 
 # Logging setup
@@ -48,7 +48,7 @@ class PublishRequest(BaseModel):
 
 # --- Core Capture Logic ---
 async def process_video_task(signal: SignalPayload | None, chat_id: int | None = None):
-    """Captures dashboard and sends it to Telegram with explicit parameter handling."""
+    """Captures dashboard and sends it to Telegram with InputFile and strict arg handling."""
     signal_id = signal.id if signal else "manual"
     video_path = VIDEO_DIR / f"{signal_id}.mp4"
     
@@ -57,42 +57,43 @@ async def process_video_task(signal: SignalPayload | None, chat_id: int | None =
             logger.info(f"DEBUG: Starting capture for {signal_id}...")
             await capture_signal_video("http://168.144.131.132:8000/", str(video_path))
             
-            if not video_path.exists() or video_path.stat().st_size == 0:
-                raise FileNotFoundError("Recorder finished, but no video file was found or it is empty.")
+            # File Validation
+            if not video_path.exists():
+                raise FileNotFoundError("Recorder finished, but no video file was found.")
+            if video_path.stat().st_size < 1000:
+                raise ValueError(f"Video file is corrupted/too small: {video_path.stat().st_size} bytes.")
 
             if telegram_app and telegram_app.bot:
                 target_chat = int(chat_id or TELEGRAM_CHAT_ID)
                 
-                # Build the caption ONLY if signal exists
-                caption = None
-                if signal:
-                    caption = f"SIGNAL: {str(signal.symbol).replace('_', '-')} {str(signal.side).upper()}\nScore: {signal.score}"
-                
-                logger.info(f"DEBUG: Sending file to {target_chat}")
+                # Build Send Arguments
+                # Using InputFile() is the standard for v20+ to ensure multipart/form-data encoding
+                with open(video_path, "rb") as video_file:
+                    send_args = {
+                        "chat_id": target_chat,
+                        "video": InputFile(video_file)
+                    }
+                    
+                    # Only add caption if it is non-empty
+                    if signal:
+                        caption = f"SIGNAL: {str(signal.symbol).replace('_', '-')} {str(signal.side).upper()}\nScore: {signal.score}"
+                        if caption.strip():
+                            send_args["caption"] = caption
 
-                # Build arguments for send_video
-                # We use a dictionary to only pass 'caption' if it is not None/Empty
-                send_args = {
-                    "chat_id": target_chat,
-                    "video": open(video_path, "rb")
-                }
-                
-                if caption and len(caption.strip()) > 0:
-                    send_args["caption"] = caption
-                    send_args["parse_mode"] = None # Avoid markdown parsing issues entirely
-
-                # Send
-                try:
+                    logger.info(f"DEBUG: Attempting send_video with keys: {list(send_args.keys())}")
+                    
                     await telegram_app.bot.send_video(**send_args)
                     logger.info("Video successfully sent to Telegram.")
-                finally:
-                    # Close the file manually since we opened it via open()
-                    if "video" in send_args:
-                        send_args["video"].close()
-
+        
         except Exception as e:
             logger.error(f"CRITICAL TASK ERROR: {e}")
             logger.error(traceback.format_exc())
+            # Optional: Notify chat if the error is triggered via command
+            if chat_id:
+                try:
+                    await telegram_app.bot.send_message(chat_id=chat_id, text=f"Error: {str(e)[:50]}")
+                except:
+                    pass
         finally:
             if video_path.exists(): 
                 video_path.unlink()
@@ -107,7 +108,8 @@ async def start_snap(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def startup():
     global telegram_app
     if TELEGRAM_BOT_TOKEN:
-        telegram_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+        # Increased timeouts for slow video uploads
+        telegram_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).read_timeout(30).write_timeout(30).build()
         telegram_app.add_handler(CommandHandler("snap", start_snap))
         await telegram_app.initialize()
         
@@ -118,6 +120,7 @@ async def startup():
         logger.info("Telegram Bot Initialized.")
 
 # --- Endpoints ---
+
 @app.post("/telegram-webhook")
 async def telegram_webhook(request: Request):
     global telegram_app
