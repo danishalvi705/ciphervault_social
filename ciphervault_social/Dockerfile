@@ -1,7 +1,7 @@
-# Use the official Playwright image (includes Python and Browser OS dependencies)
-FROM mcr.microsoft.com/playwright:v1.40.0-jammy
+# 1. Use the official Playwright Python image (includes Python and Browsers)
+FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
 
-# 1. Install standard build tools (required for Pillow/Matplotlib/Legacy mode)
+# 2. Install system dependencies for your legacy rendering (ffmpeg, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     gcc \
@@ -13,12 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 2. Install Python dependencies
+# 3. Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 3. Install the actual Chromium browser binary
-RUN playwright install chromium
+# Using "python -m pip" is the safest way to ensure the correct environment is used
+RUN python -m pip install --no-cache-dir -r requirements.txt
 
 # 4. Copy your app code
 COPY . .
