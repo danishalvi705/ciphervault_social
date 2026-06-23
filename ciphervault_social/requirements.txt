@@ -11,7 +11,7 @@ matplotlib>=3.7
 pillow==9.5.0
 
 # Browser Automation (Snap Method)
-playwright>=1.60.0
+playwright==1.60.0
 
 # API & Utils
 tweepy>=4.14,<5
