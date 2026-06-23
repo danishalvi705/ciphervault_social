@@ -22,14 +22,14 @@ logger = logging.getLogger("ciphervault-social-render")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL") # e.g., https://your-app.onrender.com
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL") 
 
 VIDEO_DIR = Path("/tmp/videos")
 VIDEO_DIR.mkdir(exist_ok=True)
 render_semaphore = asyncio.Semaphore(1)
 
 app = FastAPI(title="CipherVault Social Render Service")
-bot = Bot(token=TELEGRAM_BOT_TOKEN) if TELEGRAM_BOT_TOKEN else None
+telegram_app = None # Global variable to store the bot instance
 
 # --- Models ---
 class SignalPayload(BaseModel):
@@ -47,9 +47,11 @@ class PublishRequest(BaseModel):
     ohlcv: list[list[float]]
 
 # --- Core Capture Logic ---
-async def process_video_task(signal: SignalPayload, chat_id: int | None = None):
+async def process_video_task(signal: SignalPayload | None, chat_id: int | None = None):
     """Captures dashboard and optionally sends to Telegram."""
-    video_path = VIDEO_DIR / f"{signal.id if signal else 'manual'}.mp4"
+    # Use 'manual' if signal is None
+    signal_id = signal.id if signal else "manual"
+    video_path = VIDEO_DIR / f"{signal_id}.mp4"
     
     async with render_semaphore:
         try:
@@ -57,20 +59,22 @@ async def process_video_task(signal: SignalPayload, chat_id: int | None = None):
             await capture_signal_video("http://168.144.131.132:8000/", str(video_path))
             
             # Send to Telegram
-            if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+            if TELEGRAM_BOT_TOKEN:
                 target_chat = chat_id or TELEGRAM_CHAT_ID
-                async with httpx.AsyncClient() as client:
-                    with open(video_path, "rb") as f:
-                        await client.post(
-                            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo",
-                            data={
-                                "chat_id": target_chat,
-                                "caption": f"🚨 *{signal.symbol}* {signal.side.upper()}\nScore: `{signal.score}`" if signal else "Snapshot requested.",
-                                "parse_mode": "Markdown"
-                            },
-                            files={"video": f},
-                            timeout=60
-                        )
+                if target_chat:
+                    async with httpx.AsyncClient() as client:
+                        with open(video_path, "rb") as f:
+                            caption = f"🚨 *{signal.symbol}* {signal.side.upper()}\nScore: `{signal.score}`" if signal else "Snapshot requested."
+                            await client.post(
+                                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo",
+                                data={
+                                    "chat_id": target_chat,
+                                    "caption": caption,
+                                    "parse_mode": "Markdown"
+                                },
+                                files={"video": f},
+                                timeout=60
+                            )
         except Exception as e:
             logger.error(f"CRITICAL TASK ERROR: {e}")
             logger.error(traceback.format_exc())
@@ -82,25 +86,36 @@ async def process_video_task(signal: SignalPayload, chat_id: int | None = None):
 # --- Telegram Bot Handler ---
 async def start_snap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📸 Recording dashboard... 10 seconds.")
-    # We pass None for signal payload since this is a manual snap
+    # Pass None for signal payload since this is a manual snap
     await process_video_task(None, chat_id=update.effective_chat.id)
 
 @app.on_event("startup")
 async def startup():
-    if TELEGRAM_BOT_TOKEN and WEBHOOK_URL:
-        # Set the webhook automatically on startup
-        async with httpx.AsyncClient() as client:
-            await client.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}/telegram-webhook")
+    global telegram_app
+    if TELEGRAM_BOT_TOKEN:
+        # Build and Initialize the app ONCE
+        telegram_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+        telegram_app.add_handler(CommandHandler("snap", start_snap))
+        await telegram_app.initialize()
+        
+        # Set Webhook
+        if WEBHOOK_URL:
+            async with httpx.AsyncClient() as client:
+                await client.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}/telegram-webhook")
+        
+        logger.info("Telegram Bot Initialized.")
 
 # --- Endpoints ---
 
 @app.post("/telegram-webhook")
 async def telegram_webhook(request: Request):
-    bot_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    bot_app.add_handler(CommandHandler("snap", start_snap))
+    global telegram_app
+    if not telegram_app:
+        return {"status": "error", "message": "Bot not initialized"}
     
-    update = Update.de_json(await request.json(), bot)
-    await bot_app.process_update(update)
+    # Process update using the initialized application
+    update = Update.de_json(await request.json(), telegram_app.bot)
+    await telegram_app.process_update(update)
     return {"status": "ok"}
 
 @app.post("/publish")
