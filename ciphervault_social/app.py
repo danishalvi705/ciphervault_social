@@ -25,7 +25,7 @@ logger = logging.getLogger("ciphervault-social-render")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-RENDER_METHOD = os.environ.get("RENDER_METHOD", "snap") # Switch between 'snap' and 'legacy'
+RENDER_METHOD = os.environ.get("RENDER_METHOD", "snap") 
 
 VIDEO_DIR = Path("/tmp/videos")
 VIDEO_DIR.mkdir(exist_ok=True)
@@ -48,9 +48,12 @@ class PublishRequest(BaseModel):
     ohlcv: list[list[float]]
 
 async def process_video_task(signal: SignalPayload, ohlcv: list[list[float]]):
+    logger.info(f"DEBUG: Starting task for {signal.id}")
     async with render_semaphore:
         video_path = VIDEO_DIR / f"{signal.id}.mp4"
         try:
+            logger.info(f"DEBUG: Entering capture logic for {signal.symbol}...")
+            
             if RENDER_METHOD == "legacy":
                 # --- LEGACY MODE ---
                 chart_png = VIDEO_DIR / f"{signal.id}_chart.png"
@@ -62,18 +65,21 @@ async def process_video_task(signal: SignalPayload, ohlcv: list[list[float]]):
                 for p in [chart_png, frame_png]:
                     if p.exists(): p.unlink()
             else:
-                # --- SNAP MODE (Updated to external IP) ---
+                # --- SNAP MODE ---
                 await capture_signal_video(
                     dashboard_url="http://168.144.131.132:8000/", 
                     selector=".signal-card-active", 
                     output_path=str(video_path)
                 )
+            
+            logger.info(f"DEBUG: Capture finished. File exists: {video_path.exists()}")
 
             # Send to Telegram
             if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+                logger.info("DEBUG: Preparing to send to Telegram...")
                 async with httpx.AsyncClient() as client:
                     with open(video_path, "rb") as f:
-                        await client.post(
+                        resp = await client.post(
                             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo",
                             data={
                                 "chat_id": TELEGRAM_CHAT_ID,
@@ -83,10 +89,17 @@ async def process_video_task(signal: SignalPayload, ohlcv: list[list[float]]):
                             files={"video": f},
                             timeout=60
                         )
+                logger.info(f"DEBUG: Telegram response code: {resp.status_code}")
+            else:
+                logger.error("DEBUG: Telegram tokens are missing in environment variables!")
+
         except Exception as e:
-            logger.error(f"TASK ERROR: {e}")
+            logger.error(f"CRITICAL TASK ERROR: {e}")
+            logger.error(traceback.format_exc()) # Prints exact line of failure
         finally:
-            if video_path.exists(): video_path.unlink()
+            if video_path.exists(): 
+                video_path.unlink()
+                logger.info("DEBUG: Cleaned up video file.")
             gc.collect()
 
 @app.post("/publish")
@@ -100,7 +113,7 @@ def publish(req: PublishRequest, background_tasks: BackgroundTasks, x_webhook_se
             logger.info(f"Skipping {req.signal.symbol} - Score {req.signal.score} too low.")
             return {"status": "ignored"}
     except:
-        return {"status": "ignored"} # Skip if score is unreadable
+        return {"status": "ignored"}
 
     logger.info(f"Queuing {req.signal.symbol} (Score: {req.signal.score})")
     background_tasks.add_task(process_video_task, req.signal, req.ohlcv)
