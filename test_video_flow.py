@@ -1,30 +1,31 @@
 import os
 import asyncio
+from dotenv import load_dotenv
 from video_synth import synthesize_short
 from telegram import Bot
 
-# Update these with your actual values
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-CHAT_ID = "YOUR_CHAT_ID"
+# Load variables from .env file
+load_dotenv()
+
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 async def test_flow():
     print("Generating test video...")
     
-    test_signal = {
-        "symbol": "BTC/USDT",
-        "side": "BUY",
-        "entry_price": 69150.25
-    }
+    frame_directory = "backgrounds" 
+    output_filename = "test_output.mp4"
     
     try:
-        # Calling the function we found in your file
-        video_path = synthesize_short(test_signal)
+        # Generate video
+        synthesize_short(frame_directory, output_filename)
         
-        if os.path.exists(video_path):
-            print(f"Video generated: {video_path}")
+        if os.path.exists(output_filename):
+            print(f"Video generated: {output_filename}")
             
+            # Send to Telegram
             bot = Bot(token=BOT_TOKEN)
-            with open(video_path, 'rb') as video_file:
+            with open(output_filename, 'rb') as video_file:
                 await bot.send_video(
                     chat_id=CHAT_ID,
                     video=video_file,
