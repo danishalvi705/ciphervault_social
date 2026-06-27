@@ -44,7 +44,6 @@ async def publish(request: PublishRequest, x_webhook_secret: str = Header(None))
         return {"status": "failed", "reason": str(e)}
 
 async def generate_video_with_background(signal: Signal) -> str:
-    # Debug: Check if backgrounds directory exists and has files
     bg_dir_path = Path(BACKGROUND_DIR)
     logger.debug(f"Checking backgrounds directory: {BACKGROUND_DIR}")
     logger.debug(f"Directory exists: {bg_dir_path.exists()}")
@@ -88,35 +87,44 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <!DOCTYPE html>
     <html>
     <head><style>
-        body {{ margin: 0; width: 1080px; height: 1920px; background: transparent; display: flex; align-items: center; justify-content: center; }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ width: 1080px; height: 1920px; background: rgba(0, 0, 0, 0); display: flex; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
         .card {{ 
-            width: 900px; background: rgba(10, 10, 15, 0.6); backdrop-filter: blur(40px); 
+            width: 900px; background: rgba(10, 10, 15, 0.8); backdrop-filter: blur(40px); 
             border: 2px solid rgba(0, 255, 136, 0.5); border-radius: 50px; 
             padding: 60px; color: white; box-sizing: border-box;
             box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
-            font-family: sans-serif;
         }}
         .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }}
+        .brand {{ font-size: 30px; letter-spacing: 3px; }}
+        .live-badge {{ background:#d4a373; padding:10px 20px; border-radius:20px; color:black; font-weight:bold; }}
         .symbol {{ font-size: 80px; font-weight: bold; margin-bottom: 40px; }}
         .row {{ display: flex; justify-content: space-between; padding: 25px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 35px; }}
-        .green {{ color: #00ff88; font-weight: bold; }}
-        .red {{ color: #ff6b6b; font-weight: bold; }}
-        .footer {{ display: flex; justify-content: space-between; margin-top: 50px; }}
-        .box {{ background: rgba(255,255,255,0.05); padding: 30px; border-radius: 25px; text-align: center; width: 200px; }}
+        .label {{ color: #888; }}
+        .value {{ font-weight: bold; }}
+        .green {{ color: #00ff88; }}
+        .red {{ color: #ff6b6b; }}
+        .footer {{ display: flex; justify-content: space-between; margin-top: 50px; gap: 20px; }}
+        .stat-box {{ flex: 1; background: rgba(255,255,255,0.05); padding: 30px; border-radius: 25px; text-align: center; }}
+        .stat-label {{ font-size: 16px; color: #888; margin-bottom: 15px; }}
+        .stat-value {{ font-size: 35px; font-weight: bold; }}
     </style></head>
     <body>
     <div class="card">
-        <div class="header"><div style="font-size: 30px; letter-spacing: 3px;">CIPHERVAULT</div><div style="background:#d4a373; padding:10px 20px; border-radius:20px; color:black; font-weight:bold;">LIVE</div></div>
+        <div class="header">
+            <div class="brand">CIPHERVAULT</div>
+            <div class="live-badge">LIVE</div>
+        </div>
         <div class="symbol">{signal.symbol}</div>
-        <div class="row"><span>ENTRY</span><span class="green">${signal.entry:,.2f}</span></div>
-        <div class="row"><span>TP1</span><span>${tp_values[0]:,.2f}</span></div>
-        <div class="row"><span>TP2</span><span>${tp_values[1]:,.2f}</span></div>
-        <div class="row"><span>TP3</span><span>${tp_values[2]:,.2f}</span></div>
-        <div class="row"><span>SL</span><span class="red">${signal.sl:,.2f}</span></div>
+        <div class="row"><span class="label">ENTRY</span><span class="value green">${signal.entry:,.2f}</span></div>
+        <div class="row"><span class="label">TP1</span><span class="value">${tp_values[0]:,.2f}</span></div>
+        <div class="row"><span class="label">TP2</span><span class="value">${tp_values[1]:,.2f}</span></div>
+        <div class="row"><span class="label">TP3</span><span class="value">${tp_values[2]:,.2f}</span></div>
+        <div class="row"><span class="label">SL</span><span class="value red">${signal.sl:,.2f}</span></div>
         <div class="footer">
-            <div class="box"><div style="font-size:16px; color:#888;">GRADE</div><div style="font-size:35px; font-weight:bold;">{signal.grade}</div></div>
-            <div class="box"><div style="font-size:16px; color:#888;">SCORE</div><div style="font-size:35px; font-weight:bold;">{signal.score}</div></div>
-            <div class="box"><div style="font-size:16px; color:#888;">R:R</div><div style="font-size:35px; font-weight:bold;">{signal.rr}x</div></div>
+            <div class="stat-box"><div class="stat-label">GRADE</div><div class="stat-value">{signal.grade}</div></div>
+            <div class="stat-box"><div class="stat-label">SCORE</div><div class="stat-value">{signal.score}</div></div>
+            <div class="stat-box"><div class="stat-label">R:R</div><div class="stat-value">{signal.rr}x</div></div>
         </div>
     </div>
     </body>
@@ -125,11 +133,12 @@ async def generate_signal_card_image(signal: Signal) -> str:
     temp_image = f"/tmp/card_{signal.id}.png"
     async with async_playwright() as p:
         browser = await p.chromium.launch(args=['--no-sandbox'])
-        page = await browser.new_page()
-        await page.set_viewport_size({"width": 1080, "height": 1920})
-        await page.set_content(html)
-        await page.screenshot(path=temp_image, full_page=False)
+        page = await browser.new_page(viewport={"width": 1080, "height": 1920})
+        await page.set_content(html, wait_until='networkidle')
+        await page.wait_for_timeout(500)
+        await page.screenshot(path=temp_image)
         await browser.close()
+    logger.info(f"Card image generated: {temp_image}")
     return temp_image
 
 async def send_telegram(video_path, signal, token, chat_id):
