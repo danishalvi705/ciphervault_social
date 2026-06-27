@@ -5,15 +5,14 @@ import requests
 import asyncio
 import subprocess
 import random
-import logging
+import sys
 from pathlib import Path
 from playwright.async_api import async_playwright
 
-# Setup logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
 app = FastAPI()
+
+def log_info(msg):
+    print(msg, file=sys.stderr, flush=True)
 
 class Signal(BaseModel):
     id: str
@@ -32,98 +31,75 @@ class PublishRequest(BaseModel):
 
 BACKGROUND_DIR = "/app/backgrounds"
 
-@app.get("/debug/backgrounds")
-async def debug_backgrounds():
-    """Debug endpoint to check what backgrounds exist"""
-    logger.info(f"DEBUG endpoint called - checking {BACKGROUND_DIR}")
-    bg_dir = Path(BACKGROUND_DIR)
-    if not bg_dir.exists():
-        logger.error(f"Directory does not exist: {BACKGROUND_DIR}")
-        return {"error": f"Directory does not exist: {BACKGROUND_DIR}", "exists": False}
-    
-    bg_files = list(bg_dir.glob("*.mp4")) + list(bg_dir.glob("*.mkv"))
-    logger.info(f"Found {len(bg_files)} background videos")
-    return {
-        "directory": str(BACKGROUND_DIR),
-        "exists": True,
-        "files": [str(f) for f in bg_files],
-        "count": len(bg_files)
-    }
-
 @app.get("/health")
 async def health():
-    """Health check"""
-    logger.info("Health check called")
+    log_info("Health check")
     return {"status": "ok"}
 
 @app.post("/publish")
 async def publish(request: PublishRequest, x_webhook_secret: str = Header(None)):
-    """Receive signal and generate video with background"""
-    logger.info(f"PUBLISH endpoint called")
+    log_info("=== PUBLISH ENDPOINT CALLED ===")
     secret = os.getenv("WEBHOOK_SECRET", "")
-    logger.info(f"Secret check: received={x_webhook_secret[:10] if x_webhook_secret else None}, expected={secret[:10] if secret else None}")
-
+    
     if x_webhook_secret != secret:
-        logger.error("Secret mismatch!")
+        log_info("AUTH FAILED")
         return {"error": "Unauthorized"}
 
     try:
         signal = request.signal
-        logger.info(f"Signal received: {signal.symbol} {signal.side}")
+        log_info(f"Signal: {signal.symbol} {signal.side}")
         
         video_path = await generate_video_with_background(signal)
-        logger.info(f"Video generation result: {video_path}")
+        log_info(f"Result: {video_path}")
 
         if not video_path:
-            logger.warning("Video path is None")
+            log_info("VIDEO GENERATION RETURNED NONE")
             return {"status": "failed", "video": None}
 
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
-        logger.info(f"Telegram check: token={bool(token)}, chat_id={bool(chat_id)}")
 
         if token and chat_id:
-            logger.info("Sending to Telegram...")
+            log_info("Sending to Telegram")
             await send_telegram(video_path, signal, token, chat_id)
-            logger.info("Telegram send complete")
 
         return {"status": "success", "video": video_path}
     except Exception as e:
-        logger.error(f"Exception: {str(e)}", exc_info=True)
+        log_info(f"ERROR: {str(e)}")
+        import traceback
+        log_info(traceback.format_exc())
         return {"error": str(e)}
 
 async def generate_video_with_background(signal: Signal) -> str:
-    """Generate MP4 video with signal card overlay on background video"""
-    
-    logger.info("Starting video generation")
+    log_info("1. Starting video generation")
     
     bg_dir = Path(BACKGROUND_DIR)
-    logger.info(f"Background dir exists: {bg_dir.exists()}")
+    log_info(f"2. Background dir exists: {bg_dir.exists()}")
     
     if not bg_dir.exists():
-        logger.error(f"Background directory does not exist: {BACKGROUND_DIR}")
+        log_info(f"3. ERROR: Dir not found")
         return None
     
     bg_files = list(bg_dir.glob("*.mp4")) + list(bg_dir.glob("*.mkv"))
-    logger.info(f"Found {len(bg_files)} background videos")
+    log_info(f"4. Found {len(bg_files)} videos")
     
     if not bg_files:
-        logger.error(f"No background videos found")
+        log_info(f"5. ERROR: No videos found")
         return None
     
     bg_video = random.choice(bg_files)
-    logger.info(f"Selected: {bg_video.name}")
+    log_info(f"6. Selected: {bg_video.name}")
 
-    logger.info("Generating signal card image...")
+    log_info("7. Generating image")
     signal_image = await generate_signal_card_image(signal)
-    logger.info(f"Signal image: {signal_image}")
+    log_info(f"8. Image: {signal_image}")
     
     if not signal_image or not os.path.exists(signal_image):
-        logger.error("Signal image generation failed")
+        log_info("9. ERROR: Image failed")
         return None
     
     video_path = f"/tmp/signal_{signal.id}.mp4"
-    logger.info(f"Output path: {video_path}")
+    log_info(f"10. Output: {video_path}")
     
     ffmpeg_cmd = [
         'ffmpeg',
@@ -140,27 +116,27 @@ async def generate_video_with_background(signal: Signal) -> str:
         video_path
     ]
     
-    logger.info("Running FFmpeg...")
+    log_info("11. Running FFmpeg")
     
     try:
         result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=120)
+        log_info(f"12. FFmpeg return code: {result.returncode}")
         if result.returncode != 0:
-            logger.error(f"FFmpeg failed: {result.stderr[:500]}")
+            log_info(f"13. ERROR: {result.stderr[:300]}")
             return None
-        logger.info("Video created")
     except Exception as e:
-        logger.error(f"FFmpeg error: {e}")
+        log_info(f"14. ERROR: {e}")
         return None
     
     if not os.path.exists(video_path):
-        logger.error(f"Video file not created: {video_path}")
+        log_info(f"15. ERROR: File not created")
         return None
     
     file_size = os.path.getsize(video_path)
-    logger.info(f"Video size: {file_size} bytes")
+    log_info(f"16. Video size: {file_size}")
     
     if file_size < 1000:
-        logger.error(f"Video too small: {file_size}")
+        log_info(f"17. ERROR: Too small")
         return None
     
     try:
@@ -168,76 +144,23 @@ async def generate_video_with_background(signal: Signal) -> str:
     except:
         pass
     
+    log_info("18. SUCCESS - returning path")
     return video_path
 
 async def generate_signal_card_image(signal: Signal) -> str:
-    """Generate signal card as PNG image using Playwright"""
-    
     html = f"""
     <!DOCTYPE html>
     <html>
     <head>
     <style>
-        body {{ 
-            margin: 0; 
-            padding: 0;
-            width: 540px; 
-            height: 960px; 
-            font-family: 'Courier New', monospace;
-            background: transparent;
-            display: flex; 
-            align-items: center; 
-            justify-content: center;
-        }}
-        .card {{ 
-            background: rgba(15, 15, 30, 0.85);
-            backdrop-filter: blur(15px); 
-            border: 2px solid rgba(0,255,136,0.6);
-            border-radius: 20px; 
-            padding: 40px; 
-            color: #00ff88;
-            text-align: center; 
-            width: 350px;
-            box-shadow: 0 0 30px rgba(0,255,136,0.3);
-        }}
-        .symbol {{ 
-            font-size: 56px; 
-            font-weight: bold; 
-            margin: 20px 0; 
-            color: #00ff88;
-            text-shadow: 0 0 15px rgba(0,255,136,0.6);
-        }}
-        .row {{ 
-            display: flex; 
-            justify-content: space-between; 
-            padding: 12px 0; 
-            border-bottom: 1px solid rgba(0,255,136,0.2);
-            font-size: 14px;
-        }}
-        .label {{ 
-            color: #888;
-            text-transform: uppercase;
-            font-size: 12px;
-        }}
-        .value {{ 
-            font-weight: bold;
-            color: #00ff88;
-        }}
-        .side {{
-            margin-top: 20px;
-            font-size: 20px;
-            font-weight: bold;
-            color: {"#00ff88" if signal.side.lower() == "long" else "#ff4444"};
-            text-transform: uppercase;
-            text-shadow: 0 0 12px rgba(0,255,136,0.5);
-        }}
-        .header {{
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }}
+        body {{ margin: 0; padding: 0; width: 540px; height: 960px; font-family: 'Courier New', monospace; background: transparent; display: flex; align-items: center; justify-content: center; }}
+        .card {{ background: rgba(15, 15, 30, 0.85); backdrop-filter: blur(15px); border: 2px solid rgba(0,255,136,0.6); border-radius: 20px; padding: 40px; color: #00ff88; text-align: center; width: 350px; box-shadow: 0 0 30px rgba(0,255,136,0.3); }}
+        .symbol {{ font-size: 56px; font-weight: bold; margin: 20px 0; color: #00ff88; text-shadow: 0 0 15px rgba(0,255,136,0.6); }}
+        .row {{ display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(0,255,136,0.2); font-size: 14px; }}
+        .label {{ color: #888; text-transform: uppercase; font-size: 12px; }}
+        .value {{ font-weight: bold; color: #00ff88; }}
+        .side {{ margin-top: 20px; font-size: 20px; font-weight: bold; color: {"#00ff88" if signal.side.lower() == "long" else "#ff4444"}; text-transform: uppercase; text-shadow: 0 0 12px rgba(0,255,136,0.5); }}
+        .header {{ font-size: 12px; color: #666; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; }}
     </style>
     </head>
     <body>
@@ -266,23 +189,14 @@ async def generate_signal_card_image(signal: Signal) -> str:
             await page.set_content(html)
             await page.screenshot(path=temp_image)
             await browser.close()
-        logger.info(f"Screenshot saved")
     except Exception as e:
-        logger.error(f"Playwright error: {e}")
+        log_info(f"Screenshot error: {e}")
         return None
 
     return temp_image
 
 async def send_telegram(video_path: str, signal: Signal, token: str, chat_id: str):
-    """Send MP4 video to Telegram"""
     try:
-        if not os.path.exists(video_path):
-            logger.error(f"Video not found: {video_path}")
-            return
-        
-        file_size = os.path.getsize(video_path)
-        logger.info(f"Sending video ({file_size} bytes) to Telegram")
-        
         with open(video_path, 'rb') as f:
             response = requests.post(
                 f"https://api.telegram.org/bot{token}/sendVideo",
@@ -294,11 +208,9 @@ async def send_telegram(video_path: str, signal: Signal, token: str, chat_id: st
                 },
                 timeout=120
             )
-            logger.info(f"Telegram response: {response.status_code}")
-            if response.status_code != 200:
-                logger.error(f"Telegram error: {response.text[:200]}")
+            log_info(f"Telegram: {response.status_code}")
     except Exception as e:
-        logger.error(f"Telegram exception: {e}")
+        log_info(f"Telegram error: {e}")
 
 if __name__ == "__main__":
     import uvicorn
