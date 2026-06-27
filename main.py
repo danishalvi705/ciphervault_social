@@ -25,7 +25,7 @@ class PublishRequest(BaseModel):
     signal: Signal
     ohlcv: list
 
-BACKGROUND_DIR = "/app/Background"  # Path to background videos
+BACKGROUND_DIR = "/app/Background"
 
 @app.post("/publish")
 async def publish(request: PublishRequest, x_webhook_secret: str = Header(None)):
@@ -37,66 +37,92 @@ async def publish(request: PublishRequest, x_webhook_secret: str = Header(None))
 
     try:
         signal = request.signal
+        print(f"[DEBUG] Signal received: {signal.symbol} {signal.side}", flush=True)
+        
         video_path = await generate_video_with_background(signal)
+        print(f"[DEBUG] Video path: {video_path}", flush=True)
+
+        if not video_path:
+            print("[DEBUG] Video path is None!", flush=True)
+            return {"status": "success", "video": None}
 
         # Send to Telegram
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        print(f"[DEBUG] Token: {token[:10] if token else 'MISSING'}, Chat ID: {chat_id}", flush=True)
 
         if token and chat_id:
+            print("[DEBUG] Sending to Telegram...", flush=True)
             await send_telegram(video_path, signal, token, chat_id)
+            print("[DEBUG] Telegram send complete", flush=True)
 
         return {"status": "success", "video": video_path}
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"[ERROR] Exception: {str(e)}", flush=True)
+        import traceback
+        print(traceback.format_exc(), flush=True)
         return {"error": str(e)}
 
 async def generate_video_with_background(signal: Signal) -> str:
     """Generate MP4 video with signal card overlay on background video"""
     
-    # Find a random background video
+    print(f"[DEBUG] Looking for backgrounds in: {BACKGROUND_DIR}", flush=True)
+    
     bg_files = list(Path(BACKGROUND_DIR).glob("*.mp4")) + list(Path(BACKGROUND_DIR).glob("*.mkv"))
     
+    print(f"[DEBUG] Found {len(bg_files)} background videos", flush=True)
+    
     if not bg_files:
-        print(f"No background videos found in {BACKGROUND_DIR}")
+        print(f"[ERROR] No background videos found in {BACKGROUND_DIR}", flush=True)
         return None
     
     bg_video = random.choice(bg_files)
-    print(f"Using background: {bg_video}")
+    print(f"[DEBUG] Using background: {bg_video}", flush=True)
 
-    # Generate signal card as PNG image
+    print("[DEBUG] Generating signal card image...", flush=True)
     signal_image = await generate_signal_card_image(signal)
+    print(f"[DEBUG] Signal card image: {signal_image}", flush=True)
     
-    # Overlay card on background video
+    if not signal_image or not os.path.exists(signal_image):
+        print(f"[ERROR] Signal image generation failed", flush=True)
+        return None
+    
     video_path = f"/tmp/signal_{signal.id}.mp4"
     
-    # FFmpeg command to overlay PNG on video
     ffmpeg_cmd = [
         'ffmpeg',
-        '-i', str(bg_video),  # Background video
-        '-i', signal_image,   # Signal card image
+        '-i', str(bg_video),
+        '-i', signal_image,
         '-filter_complex', '[0:v]scale=540:960[bg];[bg][1:v]overlay=(W-w)/2:(H-h)/2[out]',
         '-map', '[out]',
-        '-map', '0:a?',  # Keep audio from background if exists
+        '-map', '0:a?',
         '-c:v', 'libx264',
         '-crf', '18',
         '-pix_fmt', 'yuv420p',
-        '-t', '10',  # 10 second video
+        '-t', '10',
         video_path,
-        '-y'  # Overwrite if exists
+        '-y'
     ]
+    
+    print(f"[DEBUG] Running FFmpeg...", flush=True)
     
     try:
         result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
-            print(f"FFmpeg error: {result.stderr}")
+            print(f"[ERROR] FFmpeg failed: {result.stderr}", flush=True)
             return None
-        print(f"Video created: {video_path}")
+        print(f"[DEBUG] Video created: {video_path}", flush=True)
     except Exception as e:
-        print(f"FFmpeg execution error: {e}")
+        print(f"[ERROR] FFmpeg execution error: {e}", flush=True)
         return None
     
-    # Cleanup temp image
+    if not os.path.exists(video_path):
+        print(f"[ERROR] Video file does not exist: {video_path}", flush=True)
+        return None
+    
+    file_size = os.path.getsize(video_path)
+    print(f"[DEBUG] Video file size: {file_size} bytes", flush=True)
+    
     try:
         os.remove(signal_image)
     except:
@@ -206,8 +232,11 @@ async def send_telegram(video_path: str, signal: Signal, token: str, chat_id: st
     """Send MP4 video to Telegram"""
     try:
         if not os.path.exists(video_path):
-            print(f"Video file not found: {video_path}")
+            print(f"[ERROR] Video file not found: {video_path}", flush=True)
             return
+        
+        file_size = os.path.getsize(video_path)
+        print(f"[DEBUG] Sending video ({file_size} bytes) to Telegram...", flush=True)
         
         with open(video_path, 'rb') as f:
             response = requests.post(
@@ -220,9 +249,10 @@ async def send_telegram(video_path: str, signal: Signal, token: str, chat_id: st
                 },
                 timeout=60
             )
-            print(f"Telegram response: {response.status_code}")
+            print(f"[DEBUG] Telegram response code: {response.status_code}", flush=True)
+            print(f"[DEBUG] Telegram response: {response.text}", flush=True)
     except Exception as e:
-        print(f"Telegram error: {e}")
+        print(f"[ERROR] Telegram error: {e}", flush=True)
 
 if __name__ == "__main__":
     import uvicorn
