@@ -25,7 +25,7 @@ class PublishRequest(BaseModel):
 @app.post("/publish")
 async def publish(request: PublishRequest, x_webhook_secret: str = Header(None)):
     """Receive signal and generate video"""
-    secret = os.getenv("RENDER_SOCIAL_WEBHOOK_SECRET", "")
+    secret = os.getenv("WEBHOOK_SECRET", "")
     
     if x_webhook_secret != secret:
         return {"error": "Unauthorized"}
