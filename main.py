@@ -25,7 +25,7 @@ class PublishRequest(BaseModel):
     signal: Signal
     ohlcv: list
 
-BACKGROUND_DIR = "/app/Background"
+BACKGROUND_DIR = "/app/backgrounds"
 
 @app.post("/publish")
 async def publish(request: PublishRequest, x_webhook_secret: str = Header(None)):
@@ -68,6 +68,7 @@ async def generate_video_with_background(signal: Signal) -> str:
     
     print(f"[DEBUG] Looking for backgrounds in: {BACKGROUND_DIR}", flush=True)
     
+    # Find a random background video
     bg_files = list(Path(BACKGROUND_DIR).glob("*.mp4")) + list(Path(BACKGROUND_DIR).glob("*.mkv"))
     
     print(f"[DEBUG] Found {len(bg_files)} background videos", flush=True)
@@ -79,6 +80,7 @@ async def generate_video_with_background(signal: Signal) -> str:
     bg_video = random.choice(bg_files)
     print(f"[DEBUG] Using background: {bg_video}", flush=True)
 
+    # Generate signal card as PNG image
     print("[DEBUG] Generating signal card image...", flush=True)
     signal_image = await generate_signal_card_image(signal)
     print(f"[DEBUG] Signal card image: {signal_image}", flush=True)
@@ -87,35 +89,42 @@ async def generate_video_with_background(signal: Signal) -> str:
         print(f"[ERROR] Signal image generation failed", flush=True)
         return None
     
+    # Overlay card on background video
     video_path = f"/tmp/signal_{signal.id}.mp4"
     
+    # FFmpeg command to overlay PNG on video - proper format
     ffmpeg_cmd = [
         'ffmpeg',
         '-i', str(bg_video),
         '-i', signal_image,
-        '-filter_complex', '[0:v]scale=540:960[bg];[bg][1:v]overlay=(W-w)/2:(H-h)/2[out]',
-        '-map', '[out]',
+        '-filter_complex', '[1:v]format=rgba,pad=iw:ih:0:0[overlay];[0:v]scale=1080:1920[base];[base][overlay]overlay=(W-w)/2:(H-h)/2:enable="gte(t,0)"[outv]',
+        '-map', '[outv]',
         '-map', '0:a?',
         '-c:v', 'libx264',
-        '-crf', '18',
+        '-crf', '20',
         '-pix_fmt', 'yuv420p',
-        '-t', '10',
-        video_path,
-        '-y'
+        '-t', '15',
+        '-y',
+        video_path
     ]
     
-    print(f"[DEBUG] Running FFmpeg...", flush=True)
+    print(f"[DEBUG] Running FFmpeg with background overlay...", flush=True)
     
     try:
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=120)
+        print(f"[DEBUG] FFmpeg stdout: {result.stdout}", flush=True)
         if result.returncode != 0:
-            print(f"[ERROR] FFmpeg failed: {result.stderr}", flush=True)
+            print(f"[ERROR] FFmpeg failed with code {result.returncode}: {result.stderr}", flush=True)
             return None
-        print(f"[DEBUG] Video created: {video_path}", flush=True)
+        print(f"[DEBUG] Video created successfully", flush=True)
+    except subprocess.TimeoutExpired:
+        print(f"[ERROR] FFmpeg timeout (>120s)", flush=True)
+        return None
     except Exception as e:
         print(f"[ERROR] FFmpeg execution error: {e}", flush=True)
         return None
     
+    # Verify video was created
     if not os.path.exists(video_path):
         print(f"[ERROR] Video file does not exist: {video_path}", flush=True)
         return None
@@ -123,8 +132,14 @@ async def generate_video_with_background(signal: Signal) -> str:
     file_size = os.path.getsize(video_path)
     print(f"[DEBUG] Video file size: {file_size} bytes", flush=True)
     
+    if file_size < 1000:
+        print(f"[ERROR] Video file too small (possibly corrupted)", flush=True)
+        return None
+    
+    # Cleanup temp image
     try:
         os.remove(signal_image)
+        print(f"[DEBUG] Cleaned up temp image", flush=True)
     except:
         pass
     
@@ -150,22 +165,22 @@ async def generate_signal_card_image(signal: Signal) -> str:
             justify-content: center;
         }}
         .card {{ 
-            background: rgba(15, 15, 30, 0.9);
-            backdrop-filter: blur(10px); 
-            border: 2px solid rgba(0,255,136,0.5);
-            border-radius: 15px; 
+            background: rgba(15, 15, 30, 0.85);
+            backdrop-filter: blur(15px); 
+            border: 2px solid rgba(0,255,136,0.6);
+            border-radius: 20px; 
             padding: 40px; 
             color: #00ff88;
             text-align: center; 
-            width: 380px;
-            box-shadow: 0 8px 32px rgba(0,255,136,0.2);
+            width: 350px;
+            box-shadow: 0 0 30px rgba(0,255,136,0.3);
         }}
         .symbol {{ 
             font-size: 56px; 
             font-weight: bold; 
             margin: 20px 0; 
             color: #00ff88;
-            text-shadow: 0 0 10px rgba(0,255,136,0.5);
+            text-shadow: 0 0 15px rgba(0,255,136,0.6);
         }}
         .row {{ 
             display: flex; 
@@ -189,7 +204,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
             font-weight: bold;
             color: {"#00ff88" if signal.side.lower() == "long" else "#ff4444"};
             text-transform: uppercase;
-            text-shadow: 0 0 8px rgba(0,255,136,0.4);
+            text-shadow: 0 0 12px rgba(0,255,136,0.5);
         }}
         .header {{
             font-size: 12px;
@@ -218,13 +233,18 @@ async def generate_signal_card_image(signal: Signal) -> str:
 
     temp_image = f"/tmp/signal_card_{signal.id}.png"
     
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(args=['--no-sandbox'])
-        page = await browser.new_page()
-        await page.set_viewport_size({"width": 540, "height": 960})
-        await page.set_content(html)
-        await page.screenshot(path=temp_image)
-        await browser.close()
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(args=['--no-sandbox'])
+            page = await browser.new_page()
+            await page.set_viewport_size({"width": 540, "height": 960})
+            await page.set_content(html)
+            await page.screenshot(path=temp_image)
+            await browser.close()
+        print(f"[DEBUG] Screenshot saved: {temp_image}", flush=True)
+    except Exception as e:
+        print(f"[ERROR] Playwright error: {e}", flush=True)
+        return None
 
     return temp_image
 
@@ -247,10 +267,13 @@ async def send_telegram(video_path: str, signal: Signal, token: str, chat_id: st
                     "caption": f"🎯 {signal.symbol} {signal.side.upper()}\n✓ Grade: {signal.grade} | Score: {signal.score}/10",
                     "parse_mode": "HTML"
                 },
-                timeout=60
+                timeout=120
             )
             print(f"[DEBUG] Telegram response code: {response.status_code}", flush=True)
-            print(f"[DEBUG] Telegram response: {response.text}", flush=True)
+            if response.status_code == 200:
+                print(f"[DEBUG] ✅ Video sent to Telegram successfully", flush=True)
+            else:
+                print(f"[ERROR] Telegram error: {response.text}", flush=True)
     except Exception as e:
         print(f"[ERROR] Telegram error: {e}", flush=True)
 
