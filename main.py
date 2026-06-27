@@ -4,8 +4,12 @@ import os
 import requests
 import subprocess
 import random
+import logging
 from pathlib import Path
 from playwright.async_api import async_playwright
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -36,19 +40,46 @@ async def publish(request: PublishRequest, x_webhook_secret: str = Header(None))
         if token and chat_id: await send_telegram(video_path, request.signal, token, chat_id)
         return {"status": "success", "video": video_path}
     except Exception as e:
+        logger.error(f"Publish error: {str(e)}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
 
 async def generate_video_with_background(signal: Signal) -> str:
-    bg_video = random.choice(list(Path(BACKGROUND_DIR).glob("*.mp4")))
+    # Debug: Check if backgrounds directory exists and has files
+    bg_dir_path = Path(BACKGROUND_DIR)
+    logger.debug(f"Checking backgrounds directory: {BACKGROUND_DIR}")
+    logger.debug(f"Directory exists: {bg_dir_path.exists()}")
+    
+    if bg_dir_path.exists():
+        mp4_files = list(bg_dir_path.glob("*.mp4"))
+        logger.debug(f"Found {len(mp4_files)} MP4 files: {mp4_files}")
+    else:
+        logger.error(f"Backgrounds directory does not exist: {BACKGROUND_DIR}")
+        raise Exception(f"No backgrounds directory at {BACKGROUND_DIR}")
+    
+    if not mp4_files:
+        raise Exception(f"No .mp4 files found in {BACKGROUND_DIR}")
+    
+    bg_video = random.choice(mp4_files)
+    logger.info(f"Selected background: {bg_video}")
+    
     signal_image = await generate_signal_card_image(signal)
     video_path = f"/tmp/signal_{signal.id}.mp4"
+    
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-i', str(bg_video), '-i', signal_image,
         '-filter_complex', 'overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2',
         '-t', '8',
         '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', video_path
     ]
-    subprocess.run(ffmpeg_cmd, check=True)
+    
+    logger.debug(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
+    result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        logger.error(f"FFmpeg error: {result.stderr}")
+        raise Exception(f"FFmpeg failed: {result.stderr}")
+    
+    logger.info(f"Video generated: {video_path}")
     return video_path
 
 async def generate_signal_card_image(signal: Signal) -> str:
