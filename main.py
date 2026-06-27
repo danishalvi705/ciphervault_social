@@ -91,36 +91,33 @@ async def generate_signal_card_image(signal: Signal) -> str:
         body {{ width: 1080px; height: 1920px; background: rgba(0, 0, 0, 0); display: flex; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
         .card {{ 
             width: 900px; 
-            background: rgba(10, 10, 15, 0.15);
-            backdrop-filter: blur(60px);
-            -webkit-backdrop-filter: blur(60px);
-            border: 2px solid rgba(0, 255, 136, 0.4); 
+            background: rgba(10, 10, 15, 0.65);
+            border: 2px solid rgba(0, 255, 136, 0.5); 
             border-radius: 50px; 
             padding: 60px; 
             color: white; 
             box-sizing: border-box;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         }}
         .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }}
         .brand {{ font-size: 30px; letter-spacing: 3px; font-weight: 600; }}
-        .live-badge {{ background: rgba(212, 163, 115, 0.8); padding: 10px 20px; border-radius: 20px; color: black; font-weight: bold; font-size: 14px; }}
+        .live-badge {{ background: rgba(212, 163, 115, 0.9); padding: 10px 20px; border-radius: 20px; color: black; font-weight: bold; font-size: 14px; }}
         .symbol {{ font-size: 80px; font-weight: 700; margin-bottom: 40px; }}
-        .row {{ display: flex; justify-content: space-between; padding: 25px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); font-size: 35px; }}
-        .label {{ color: rgba(255, 255, 255, 0.6); font-weight: 500; }}
+        .row {{ display: flex; justify-content: space-between; padding: 25px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.15); font-size: 35px; }}
+        .label {{ color: rgba(255, 255, 255, 0.7); font-weight: 500; }}
         .value {{ font-weight: bold; }}
         .green {{ color: #00ff88; }}
         .red {{ color: #ff6b6b; }}
         .footer {{ display: flex; justify-content: space-between; margin-top: 50px; gap: 20px; }}
         .stat-box {{ 
             flex: 1; 
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(40px);
+            background: rgba(255, 255, 255, 0.1);
             padding: 30px; 
             border-radius: 25px; 
             text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
         }}
-        .stat-label {{ font-size: 16px; color: rgba(255, 255, 255, 0.5); margin-bottom: 15px; font-weight: 500; }}
+        .stat-label {{ font-size: 16px; color: rgba(255, 255, 255, 0.6); margin-bottom: 15px; font-weight: 500; }}
         .stat-value {{ font-size: 35px; font-weight: bold; }}
     </style></head>
     <body>
