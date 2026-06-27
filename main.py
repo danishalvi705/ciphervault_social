@@ -86,8 +86,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head>
-        <style>
+    <head><style>
     /* 1. Ensure body is strictly transparent */
     body { 
         margin: 0; 
@@ -114,8 +113,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
         box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
     /* ... keep the rest of your classes here ... */
-</style>
-</head>
+</style></head>
     <body>
     <div class="card">
         <div class="header">
