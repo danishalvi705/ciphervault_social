@@ -4,7 +4,6 @@ import os
 import requests
 import asyncio
 import subprocess
-from PIL import Image, ImageDraw, ImageFont
 import random
 from pathlib import Path
 from playwright.async_api import async_playwright
