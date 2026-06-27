@@ -88,7 +88,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <html>
     <head><style>
     /* 1. Ensure body is strictly transparent */
-    body { 
+    body {{ 
         margin: 0; 
         width: 1080px; 
         height: 1920px; 
@@ -96,9 +96,9 @@ async def generate_signal_card_image(signal: Signal) -> str:
         display: flex; 
         align-items: center; 
         justify-content: center; 
-    }
+    }}
     /* 2. Style the card with the glassmorphism effect */
-    .card { 
+    .card {{ 
         width: 900px; 
         /* Use a very dark, slightly transparent black background */
         background: rgba(10, 10, 15, 0.4); 
@@ -111,7 +111,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
         color: white; 
         box-sizing: border-box;
         box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    }
+    }}
     /* ... keep the rest of your classes here ... */
 </style></head>
     <body>
