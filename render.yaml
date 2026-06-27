@@ -1,2 +1,15 @@
-buildCommand: pip install -r requirements.txt && playwright install && playwright install-deps
-startCommand: uvicorn main:app --host 0.0.0.0 --port 8000
+services:
+  - type: web
+    name: ciphervault-social
+    runtime: docker
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    envVars:
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+    # The build and start commands are now handled inside the Dockerfile
+    # No extra buildCommand or startCommand needed here
