@@ -87,7 +87,6 @@ async def generate_signal_card_image(signal: Signal) -> str:
     html = f"""
     <!DOCTYPE html>
     <html>
-<<<<<<< HEAD
     <head>
     <meta charset="UTF-8">
     <style>
@@ -196,36 +195,6 @@ async def generate_signal_card_image(signal: Signal) -> str:
         }}
     </style>
     </head>
-=======
-    <head><style>
-    /* 1. Ensure body is strictly transparent */
-    body {{ 
-        margin: 0; 
-        width: 1080px; 
-        height: 1920px; 
-        background-color: transparent !important; 
-        display: flex; 
-        align-items: center; 
-        justify-content: center; 
-    }}
-    /* 2. Style the card with the glassmorphism effect */
-    .card {{ 
-        width: 900px; 
-        /* Use a very dark, slightly transparent black background */
-        background: rgba(10, 10, 15, 0.4); 
-        /* The blur filter is what creates the "frosted" glass look */
-        backdrop-filter: blur(20px); 
-        -webkit-backdrop-filter: blur(20px);
-        border: 2px solid rgba(0, 255, 136, 0.3); 
-        border-radius: 50px; 
-        padding: 60px; 
-        color: white; 
-        box-sizing: border-box;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    }}
-    /* ... keep the rest of your classes here ... */
-</style></head>
->>>>>>> e7f0265a0a7609a666aa0c68bb6402b47ee47130
     <body>
     <div class="card">
         <div class="header">
