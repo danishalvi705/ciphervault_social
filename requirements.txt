@@ -4,3 +4,6 @@ playwright
 pydantic
 requests
 python-dotenv
+aiohttp
+pillow
+numpy
