@@ -51,7 +51,7 @@ body {{ margin: 0; padding: 20px; width: 540px; height: 960px; font-family: Aria
 <div style="font-size: 24px; margin-bottom: 20px;">CIPHERVAULT</div>
 <div class="symbol">{signal.symbol}</div>
 <div class="row"><span class="label">ENTRY</span><span class="value">${signal.entry:.2f}</span></div>
-<div class="row"><span class="label">TP</span><span class="value">${signal.tp:.2f}</span></div>
+<div class="row"><span class="label">TP</span><span class="value">${signal.tp[0]:.2f}</span></div>
 <div class="row"><span class="label">SL</span><span class="value">${signal.sl:.2f}</span></div>
 <div class="row"><span class="label">GRADE</span><span class="value">{signal.score}</span></div>
 <div class="row"><span class="label">R:R</span><span class="value">{signal.rr}x</span></div>
