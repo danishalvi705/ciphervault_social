@@ -56,26 +56,34 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <!DOCTYPE html>
     <html>
     <head><style>
-        body {{ margin: 0; width: 1080px; height: 1920px; background: transparent; display: flex; align-items: center; justify-content: center; }}
-        .card {{ 
-            width: 90%; max-width: 900px;
-            background: rgba(10, 10, 15, 0.6); backdrop-filter: blur(40px); 
-            border: 2px solid rgba(0, 255, 136, 0.5); border-radius: 50px; 
-            padding: 60px; color: white; box-sizing: border-box;
-            box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
-            font-family: sans-serif;
+        body {{ 
+            margin: 0; width: 1080px; height: 1920px; background: transparent; 
+            display: flex; align-items: center; justify-content: center; 
         }}
-        .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }}
-        .symbol {{ font-size: 80px; font-weight: bold; margin-bottom: 40px; }}
-        .row {{ display: flex; justify-content: space-between; padding: 25px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 35px; }}
+        .card {{ 
+            width: 900px; /* Fixed width */
+            background: rgba(10, 10, 15, 0.6); 
+            backdrop-filter: blur(40px); 
+            -webkit-backdrop-filter: blur(40px);
+            border: 2px solid rgba(0, 255, 136, 0.5); 
+            border-radius: 50px; 
+            padding: 60px; 
+            color: white; 
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+            font-family: 'Segoe UI', sans-serif;
+            box-sizing: border-box;
+        }}
+        .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 50px; }}
+        .symbol {{ font-size: 80px; font-weight: bold; margin-bottom: 40px; color: #fff; }}
+        .row {{ display: flex; justify-content: space-between; padding: 30px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 40px; }}
         .green {{ color: #00ff88; font-weight: bold; }}
         .red {{ color: #ff6b6b; font-weight: bold; }}
-        .footer {{ display: flex; justify-content: space-between; margin-top: 50px; }}
-        .box {{ background: rgba(255,255,255,0.05); padding: 30px; border-radius: 25px; text-align: center; width: 200px; }}
+        .footer {{ display: flex; justify-content: space-between; margin-top: 60px; }}
+        .box {{ background: rgba(255,255,255,0.08); padding: 30px; border-radius: 30px; text-align: center; width: 220px; }}
     </style></head>
     <body>
     <div class="card">
-        <div class="header"><div style="font-size: 30px; letter-spacing: 3px;">CIPHERVAULT</div><div style="background:#d4a373; padding:10px 20px; border-radius:20px; color:black; font-weight:bold;">LIVE</div></div>
+        <div class="header"><div style="font-size: 30px; letter-spacing: 5px; opacity: 0.8;">CIPHERVAULT</div><div style="background:#d4a373; padding:15px 30px; border-radius:30px; color:black; font-weight:bold; font-size: 25px;">LIVE</div></div>
         <div class="symbol">{signal.symbol}</div>
         <div class="row"><span>ENTRY</span><span class="green">${signal.entry:,.2f}</span></div>
         <div class="row"><span>TP1</span><span>${tp_values[0]:,.2f}</span></div>
@@ -83,9 +91,9 @@ async def generate_signal_card_image(signal: Signal) -> str:
         <div class="row"><span>TP3</span><span>${tp_values[2]:,.2f}</span></div>
         <div class="row"><span>SL</span><span class="red">${signal.sl:,.2f}</span></div>
         <div class="footer">
-            <div class="box"><div style="font-size:16px; color:#888;">GRADE</div><div style="font-size:35px; font-weight:bold;">{signal.grade}</div></div>
-            <div class="box"><div style="font-size:16px; color:#888;">SCORE</div><div style="font-size:35px; font-weight:bold;">{signal.score}</div></div>
-            <div class="box"><div style="font-size:16px; color:#888;">R:R</div><div style="font-size:35px; font-weight:bold;">{signal.rr}x</div></div>
+            <div class="box"><div style="font-size:20px; color:#aaa;">GRADE</div><div style="font-size:40px; font-weight:bold;">{signal.grade}</div></div>
+            <div class="box"><div style="font-size:20px; color:#aaa;">SCORE</div><div style="font-size:40px; font-weight:bold;">{signal.score}</div></div>
+            <div class="box"><div style="font-size:20px; color:#aaa;">R:R</div><div style="font-size:40px; font-weight:bold;">{signal.rr}x</div></div>
         </div>
     </div>
     </body>
@@ -93,10 +101,12 @@ async def generate_signal_card_image(signal: Signal) -> str:
     """
     temp_image = f"/tmp/card_{signal.id}.png"
     async with async_playwright() as p:
+        # Use a headless browser to render the exact 1080x1920 frame
         browser = await p.chromium.launch(args=['--no-sandbox'])
         page = await browser.new_page()
         await page.set_viewport_size({"width": 1080, "height": 1920})
         await page.set_content(html)
+        # Ensure the background is transparent so the video shows through the blur
         await page.screenshot(path=temp_image, omit_background=True)
         await browser.close()
     return temp_image
