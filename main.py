@@ -33,8 +33,14 @@ async def publish(request: PublishRequest, x_webhook_secret: str = Header(None))
         return {"status": "failed", "reason": "Unauthorized"}
     try:
         video_path = await generate_video_with_background(request.signal)
+<<<<<<< HEAD
         token, chat_id = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
         if token and chat_id: await send_telegram(video_path, request.signal, token, chat_id)
+=======
+        if request.signal.id: # Trigger notification
+            token, chat_id = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+            if token and chat_id: await send_telegram(video_path, request.signal, token, chat_id)
+>>>>>>> c1b19b2a9b59836b1293379bcd06276478c510d1
         return {"status": "success", "video": video_path}
     except Exception as e:
         return {"status": "failed", "reason": str(e)}
@@ -43,7 +49,11 @@ async def generate_video_with_background(signal: Signal) -> str:
     bg_video = random.choice(list(Path(BACKGROUND_DIR).glob("*.mp4")))
     signal_image = await generate_signal_card_image(signal)
     video_path = f"/tmp/signal_{signal.id}.mp4"
+<<<<<<< HEAD
     # Using overlay=0:0 to match the 1080x1920 canvas
+=======
+    # Using overlay=0:0 because the generated image is now 1080x1920
+>>>>>>> c1b19b2a9b59836b1293379bcd06276478c510d1
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-i', str(bg_video), '-i', signal_image,
         '-filter_complex', 'overlay=0:0', '-t', '8',
@@ -58,6 +68,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <!DOCTYPE html>
     <html>
     <head><style>
+<<<<<<< HEAD
         body {{ margin: 0; width: 1080px; height: 1920px; background: transparent; display: flex; align-items: center; justify-content: center; }}
         .card {{ 
             width: 90%; max-width: 900px;
@@ -78,6 +89,25 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <body>
     <div class="card">
         <div class="header"><div style="font-size: 30px; letter-spacing: 3px;">CIPHERVAULT</div><div style="background:#d4a373; padding:10px 20px; border-radius:20px; color:black; font-weight:bold;">LIVE</div></div>
+=======
+        body {{ margin: 0; width: 1080px; height: 1920px; background: transparent; font-family: sans-serif; display: flex; align-items: center; justify-content: center; }}
+        .card {{ 
+            width: 900px; background: rgba(10, 10, 15, 0.5); backdrop-filter: blur(40px); 
+            border: 2px solid rgba(0, 255, 136, 0.4); border-radius: 50px; padding: 80px; 
+            color: white; box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+        }}
+        .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 50px; }}
+        .symbol {{ font-size: 90px; font-weight: bold; margin-bottom: 50px; text-shadow: 0 0 20px rgba(0,255,136,0.5); }}
+        .row {{ display: flex; justify-content: space-between; padding: 35px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 40px; }}
+        .green {{ color: #00ff88; font-weight: bold; }}
+        .red {{ color: #ff6b6b; font-weight: bold; }}
+        .footer {{ display: flex; justify-content: space-between; margin-top: 60px; }}
+        .box {{ background: rgba(255,255,255,0.05); padding: 40px; border-radius: 30px; text-align: center; width: 220px; }}
+    </style></head>
+    <body>
+    <div class="card">
+        <div class="header"><div style="font-size: 40px; letter-spacing: 5px;">CIPHERVAULT</div><div style="background:#d4a373; padding:15px 30px; border-radius:30px; color:black; font-weight:bold;">LIVE</div></div>
+>>>>>>> c1b19b2a9b59836b1293379bcd06276478c510d1
         <div class="symbol">{signal.symbol}</div>
         <div class="row"><span>ENTRY</span><span class="green">${signal.entry:,.2f}</span></div>
         <div class="row"><span>TP1</span><span>${tp_values[0]:,.2f}</span></div>
@@ -85,9 +115,15 @@ async def generate_signal_card_image(signal: Signal) -> str:
         <div class="row"><span>TP3</span><span>${tp_values[2]:,.2f}</span></div>
         <div class="row"><span>SL</span><span class="red">${signal.sl:,.2f}</span></div>
         <div class="footer">
+<<<<<<< HEAD
             <div class="box"><div style="font-size:16px; color:#888;">GRADE</div><div style="font-size:35px; font-weight:bold;">{signal.grade}</div></div>
             <div class="box"><div style="font-size:16px; color:#888;">SCORE</div><div style="font-size:35px; font-weight:bold;">{signal.score}</div></div>
             <div class="box"><div style="font-size:16px; color:#888;">R:R</div><div style="font-size:35px; font-weight:bold;">{signal.rr}x</div></div>
+=======
+            <div class="box"><div style="font-size:20px; color:#888;">GRADE</div><div style="font-size:45px; font-weight:bold;">{signal.grade}</div></div>
+            <div class="box"><div style="font-size:20px; color:#888;">SCORE</div><div style="font-size:45px; font-weight:bold;">{signal.score}</div></div>
+            <div class="box"><div style="font-size:20px; color:#888;">R:R</div><div style="font-size:45px; font-weight:bold;">{signal.rr}x</div></div>
+>>>>>>> c1b19b2a9b59836b1293379bcd06276478c510d1
         </div>
     </div>
     </body>
@@ -105,7 +141,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
 
 async def send_telegram(video_path, signal, token, chat_id):
     with open(video_path, 'rb') as f:
-        requests.post(f"https://api.telegram.org/bot{token}/sendVideo", files={"video": f}, data={"chat_id": chat_id})
+        requests.post(f"https://api.telegram.org/bot{token}/sendVideo", files={"video": f}, data={"chat_id": chat_id, "caption": f"New Signal: {signal.symbol}"})
 
 if __name__ == "__main__":
     import uvicorn
