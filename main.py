@@ -280,3 +280,18 @@ async def send_telegram(video_path: str, signal: Signal, token: str, chat_id: st
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.get("/debug/backgrounds")
+async def debug_backgrounds():
+    """Debug endpoint to check what backgrounds exist"""
+    bg_dir = Path(BACKGROUND_DIR)
+    if not bg_dir.exists():
+        return {"error": f"Directory does not exist: {BACKGROUND_DIR}"}
+    
+    bg_files = list(bg_dir.glob("*.mp4")) + list(bg_dir.glob("*.mkv"))
+    return {
+        "directory": str(BACKGROUND_DIR),
+        "exists": True,
+        "files": [str(f) for f in bg_files],
+        "count": len(bg_files)
+    }
