@@ -28,7 +28,7 @@ class PublishRequest(BaseModel):
     signal: Signal
     ohlcv: list
 
-BACKGROUND_DIR = "/app/backgrounds"
+BACKGROUND_DIR = "./backgrounds"
 
 @app.post("/publish")
 async def publish(request: PublishRequest, x_webhook_secret: str = Header(None)):
