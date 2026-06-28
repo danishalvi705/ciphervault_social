@@ -92,14 +92,18 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         
-        body {{ 
+        html, body {{ 
             width: 1080px; 
             height: 1920px; 
-            background: transparent;
+        }}
+        
+        body {{ 
+            background: rgba(0, 0, 0, 0);
             display: flex; 
             align-items: center; 
             justify-content: center;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            overflow: hidden;
         }}
         
         .card {{ 
@@ -111,6 +115,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
             color: white; 
             box-sizing: border-box;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            flex-shrink: 0;
         }}
         
         .header {{ 
@@ -124,6 +129,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
             font-size: 30px; 
             letter-spacing: 3px; 
             font-weight: 600; 
+            white-space: nowrap;
         }}
         
         .live-badge {{ 
@@ -133,6 +139,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
             color: black; 
             font-weight: bold; 
             font-size: 14px; 
+            flex-shrink: 0;
         }}
         
         .symbol {{ 
@@ -223,7 +230,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
         page = await browser.new_page(viewport={"width": 1080, "height": 1920})
         await page.set_content(html, wait_until='networkidle')
         await page.wait_for_timeout(500)
-        await page.screenshot(path=temp_image)
+        await page.screenshot(path=temp_image, full_page=False)
         await browser.close()
     
     logger.info(f"Card image generated: {temp_image}")
