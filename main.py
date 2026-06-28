@@ -45,6 +45,7 @@ async def generate_video_with_background(signal: Signal) -> str:
     signal_image = await generate_signal_card_image(signal)
     video_path = f"/tmp/signal_{signal.id}.mp4"
     
+    # 720x1280 aligned overlay
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-i', str(bg_video), '-i', signal_image,
         '-filter_complex', 'overlay=0:0', '-t', '8',
@@ -62,12 +63,16 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ 
-            width: 720px; height: 1280px; display: flex; align-items: center; justify-content: center; 
-            padding-top: 100px; background: transparent !important; 
+            width: 720px; height: 1280px; 
+            display: flex; align-items: center; justify-content: center; 
+            background: transparent !important; 
         }}
         .card {{ 
-            width: 600px; background: rgba(10, 10, 15, 0.65); border: 2px solid rgba(0, 255, 136, 0.5); 
-            border-radius: 40px; padding: 40px; color: white; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            width: 650px; min-height: 800px;
+            background: rgba(10, 10, 15, 0.7); border: 2px solid rgba(0, 255, 136, 0.5); 
+            border-radius: 50px; padding: 50px; color: white; 
+            box-shadow: 0 10px 40px rgba(0,0,0,0.9);
+            display: flex; flex-direction: column; justify-content: center;
         }}
         .symbol {{ font-size: 60px; font-weight: bold; margin-bottom: 30px; }}
         .row {{ display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 28px; }}
@@ -120,7 +125,7 @@ async def send_telegram(video_path, signal, token, chat_id):
 <b>Score:</b> {signal.score}
 <b>R:R:</b> {signal.rr}x
 
-#crypto"""
+#crypto #ciphervault"""
     with open(video_path, 'rb') as f:
         requests.post(
             f"https://api.telegram.org/bot{token}/sendVideo", 
