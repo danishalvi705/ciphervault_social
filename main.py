@@ -9,8 +9,6 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
 app = FastAPI()
 
 class Signal(BaseModel):
@@ -40,46 +38,20 @@ async def publish(request: PublishRequest, x_webhook_secret: str = Header(None))
         if token and chat_id: await send_telegram(video_path, request.signal, token, chat_id)
         return {"status": "success", "video": video_path}
     except Exception as e:
-        logger.error(f"Publish error: {str(e)}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
 
 async def generate_video_with_background(signal: Signal) -> str:
-    bg_dir_path = Path(BACKGROUND_DIR)
-    logger.debug(f"Checking backgrounds directory: {BACKGROUND_DIR}")
-    logger.debug(f"Directory exists: {bg_dir_path.exists()}")
-    
-    if not bg_dir_path.exists():
-        logger.error(f"Backgrounds directory does not exist: {BACKGROUND_DIR}")
-        raise Exception(f"No backgrounds directory at {BACKGROUND_DIR}")
-    
-    mp4_files = list(bg_dir_path.glob("*.mp4"))
-    logger.debug(f"Found {len(mp4_files)} MP4 files: {mp4_files}")
-    
-    if not mp4_files:
-        logger.error(f"No .mp4 files in {BACKGROUND_DIR}")
-        raise Exception(f"No .mp4 files found in {BACKGROUND_DIR}")
-    
-    bg_video = random.choice(mp4_files)
-    logger.info(f"Selected background: {bg_video}")
-    
+    bg_video = random.choice(list(Path(BACKGROUND_DIR).glob("*.mp4")))
     signal_image = await generate_signal_card_image(signal)
     video_path = f"/tmp/signal_{signal.id}.mp4"
     
+    # overlay=0:0 works perfectly now because image and video are both 720x1280
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-i', str(bg_video), '-i', signal_image,
-        '-filter_complex', 'overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2',
-        '-t', '8',
+        '-filter_complex', 'overlay=0:0', '-t', '8',
         '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', video_path
     ]
-    
-    logger.debug(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
-    result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        logger.error(f"FFmpeg stderr: {result.stderr}")
-        raise Exception(f"FFmpeg failed: {result.stderr}")
-    
-    logger.info(f"Video generated successfully: {video_path}")
+    subprocess.run(ffmpeg_cmd, check=True)
     return video_path
 
 async def generate_signal_card_image(signal: Signal) -> str:
@@ -88,152 +60,47 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <!DOCTYPE html>
     <html>
     <head>
-    <meta charset="UTF-8">
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        
-        html, body {{ 
-            width: 1080px; 
-            height: 1920px; 
-        }}
-        
-        body {{ 
-            background: rgba(0, 0, 0, 0);
-            display: flex; 
-            align-items: center; 
-            justify-content: center;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            overflow: hidden;
-        }}
-        
+        body {{ width: 720px; height: 1280px; display: flex; align-items: center; justify-content: center; background: transparent !important; }}
         .card {{ 
-            width: 900px; 
-            background: rgba(10, 10, 15, 0.65);
-            border: 2px solid rgba(0, 255, 136, 0.5); 
-            border-radius: 50px; 
-            padding: 60px; 
-            color: white; 
-            box-sizing: border-box;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-            flex-shrink: 0;
+            width: 600px; background: rgba(10, 10, 15, 0.65); border: 2px solid rgba(0, 255, 136, 0.5); 
+            border-radius: 40px; padding: 40px; color: white; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
         }}
-        
-        .header {{ 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            margin-bottom: 40px; 
-        }}
-        
-        .brand {{ 
-            font-size: 30px; 
-            letter-spacing: 3px; 
-            font-weight: 600; 
-            white-space: nowrap;
-        }}
-        
-        .live-badge {{ 
-            background: rgba(212, 163, 115, 0.9); 
-            padding: 10px 20px; 
-            border-radius: 20px; 
-            color: black; 
-            font-weight: bold; 
-            font-size: 14px; 
-            flex-shrink: 0;
-        }}
-        
-        .symbol {{ 
-            font-size: 80px; 
-            font-weight: 700; 
-            margin-bottom: 40px; 
-        }}
-        
-        .row {{ 
-            display: flex; 
-            justify-content: space-between; 
-            padding: 25px 0; 
-            border-bottom: 1px solid rgba(255, 255, 255, 0.15); 
-            font-size: 35px; 
-        }}
-        
-        .label {{ 
-            color: rgba(255, 255, 255, 0.7); 
-            font-weight: 500; 
-        }}
-        
-        .value {{ 
-            font-weight: bold; 
-        }}
-        
-        .green {{ 
-            color: #00ff88; 
-        }}
-        
-        .red {{ 
-            color: #ff6b6b; 
-        }}
-        
-        .footer {{ 
-            display: flex; 
-            justify-content: space-between; 
-            margin-top: 50px; 
-            gap: 20px; 
-        }}
-        
-        .stat-box {{ 
-            flex: 1; 
-            background: rgba(255, 255, 255, 0.1);
-            padding: 30px; 
-            border-radius: 25px; 
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-        }}
-        
-        .stat-label {{ 
-            font-size: 16px; 
-            color: rgba(255, 255, 255, 0.6); 
-            margin-bottom: 15px; 
-            font-weight: 500; 
-        }}
-        
-        .stat-value {{ 
-            font-size: 35px; 
-            font-weight: bold; 
-        }}
+        .symbol {{ font-size: 60px; font-weight: bold; margin-bottom: 30px; }}
+        .row {{ display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 28px; }}
+        .green {{ color: #00ff88; font-weight: bold; }}
+        .red {{ color: #ff6b6b; font-weight: bold; }}
+        .footer {{ display: flex; justify-content: space-between; margin-top: 30px; gap: 10px; }}
+        .stat-box {{ flex: 1; background: rgba(255,255,255,0.05); padding: 20px; border-radius: 20px; text-align: center; }}
+        .disclaimer {{ margin-top: 30px; font-size: 14px; color: rgba(255,255,255,0.4); text-align: center; }}
     </style>
     </head>
     <body>
-    <div class="card">
-        <div class="header">
-            <div class="brand">CIPHERVAULT</div>
-            <div class="live-badge">LIVE</div>
+        <div class="card">
+            <div class="symbol">{signal.symbol}</div>
+            <div class="row"><span>ENTRY</span><span class="green">${signal.entry:,.2f}</span></div>
+            <div class="row"><span>TP1</span><span>${tp_values[0]:,.2f}</span></div>
+            <div class="row"><span>TP2</span><span>${tp_values[1]:,.2f}</span></div>
+            <div class="row"><span>TP3</span><span>${tp_values[2]:,.2f}</span></div>
+            <div class="row"><span>SL</span><span class="red">${signal.sl:,.2f}</span></div>
+            <div class="footer">
+                <div class="stat-box">GRADE<br><b>{signal.grade}</b></div>
+                <div class="stat-box">SCORE<br><b>{signal.score}</b></div>
+                <div class="stat-box">R:R<br><b>{signal.rr}x</b></div>
+            </div>
+            <div class="disclaimer">Disclaimer: Trading is risky. Not financial advice.</div>
         </div>
-        <div class="symbol">{signal.symbol}</div>
-        <div class="row"><span class="label">ENTRY</span><span class="value green">${signal.entry:,.2f}</span></div>
-        <div class="row"><span class="label">TP1</span><span class="value">${tp_values[0]:,.2f}</span></div>
-        <div class="row"><span class="label">TP2</span><span class="value">${tp_values[1]:,.2f}</span></div>
-        <div class="row"><span class="label">TP3</span><span class="value">${tp_values[2]:,.2f}</span></div>
-        <div class="row"><span class="label">SL</span><span class="value red">${signal.sl:,.2f}</span></div>
-        <div class="footer">
-            <div class="stat-box"><div class="stat-label">GRADE</div><div class="stat-value">{signal.grade}</div></div>
-            <div class="stat-box"><div class="stat-label">SCORE</div><div class="stat-value">{signal.score}</div></div>
-            <div class="stat-box"><div class="stat-label">R:R</div><div class="stat-value">{signal.rr}x</div></div>
-        </div>
-    </div>
     </body>
     </html>
     """
-    
     temp_image = f"/tmp/card_{signal.id}.png"
     async with async_playwright() as p:
         browser = await p.chromium.launch(args=['--no-sandbox'])
-        page = await browser.new_page(viewport={"width": 1080, "height": 1920})
+        page = await browser.new_page(viewport={"width": 720, "height": 1280})
         await page.set_content(html, wait_until='networkidle')
-        await page.wait_for_timeout(500)
-        await page.screenshot(path=temp_image, full_page=False, omit_background=True)
+        await page.screenshot(path=temp_image, omit_background=True)
         await browser.close()
-    
-    logger.info(f"Card image generated: {temp_image}")
     return temp_image
 
 async def send_telegram(video_path, signal, token, chat_id):
