@@ -45,7 +45,6 @@ async def generate_video_with_background(signal: Signal) -> str:
     signal_image = await generate_signal_card_image(signal)
     video_path = f"/tmp/signal_{signal.id}.mp4"
     
-    # overlay=0:0 works perfectly now because image and video are both 720x1280
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-i', str(bg_video), '-i', signal_image,
         '-filter_complex', 'overlay=0:0', '-t', '8',
@@ -62,7 +61,10 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <head>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ width: 720px; height: 1280px; display: flex; align-items: center; justify-content: center; background: transparent !important; }}
+        body {{ 
+            width: 720px; height: 1280px; display: flex; align-items: center; justify-content: center; 
+            padding-top: 100px; background: transparent !important; 
+        }}
         .card {{ 
             width: 600px; background: rgba(10, 10, 15, 0.65); border: 2px solid rgba(0, 255, 136, 0.5); 
             border-radius: 40px; padding: 40px; color: white; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
@@ -104,8 +106,27 @@ async def generate_signal_card_image(signal: Signal) -> str:
     return temp_image
 
 async def send_telegram(video_path, signal, token, chat_id):
+    caption = f"""#Trade_alert
+
+<b>{signal.symbol}</b>
+<b>Side:</b> {signal.side.upper()}
+<b>Entry:</b> ${signal.entry:,.2f}
+<b>TP1:</b> ${signal.tp[0]:,.2f}
+<b>TP2:</b> ${signal.tp[1]:,.2f}
+<b>TP3:</b> ${signal.tp[2]:,.2f}
+<b>SL:</b> ${signal.sl:,.2f}
+
+<b>Grade:</b> {signal.grade}
+<b>Score:</b> {signal.score}
+<b>R:R:</b> {signal.rr}x
+
+#crypto"""
     with open(video_path, 'rb') as f:
-        requests.post(f"https://api.telegram.org/bot{token}/sendVideo", files={"video": f}, data={"chat_id": chat_id})
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendVideo", 
+            files={"video": f}, 
+            data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
+        )
 
 if __name__ == "__main__":
     import uvicorn
