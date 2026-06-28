@@ -9,6 +9,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 app = FastAPI()
 
 class Signal(BaseModel):
@@ -38,22 +39,32 @@ async def publish(request: PublishRequest, x_webhook_secret: str = Header(None))
         if token and chat_id: await send_telegram(video_path, request.signal, token, chat_id)
         return {"status": "success", "video": video_path}
     except Exception as e:
+        logger.error(f"Publish error: {str(e)}")
         return {"status": "failed", "reason": str(e)}
 
 async def generate_video_with_background(signal: Signal) -> str:
-    bg_video = random.choice(list(Path(BACKGROUND_DIR).glob("*.mp4")))
+    # Ensure background directory exists and has files
+    bg_path = Path(BACKGROUND_DIR)
+    bg_videos = list(bg_path.glob("*.mp4"))
+    if not bg_videos:
+        raise Exception("No background videos found in ./backgrounds")
+    bg_video = random.choice(bg_videos)
+    
     signal_image = await generate_signal_card_image(signal)
     video_path = f"/tmp/signal_{signal.id}.mp4"
     
-    # Pulse (scale) and Shake (vibration) applied via FFmpeg filter
+    # Stable overlay filter - centered
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-i', str(bg_video), '-i', signal_image,
-        '-filter_complex', 
-        '[1:v]scale=w=iw*(1+0.02*sin(PI*t)):h=ih*(1+0.02*sin(PI*t))[scaled];'
-        '[0:v][scaled]overlay=(W-w)/2+random(4)-2:(H-h)/2+random(4)-2',
-        '-t', '8', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', video_path
+        '-filter_complex', '[0:v][1:v]overlay=(W-w)/2:(H-h)/2', 
+        '-t', '8', '-c:v', 'libx264', '-preset', 'ultrafast', 
+        '-pix_fmt', 'yuv420p', video_path
     ]
-    subprocess.run(ffmpeg_cmd, check=True)
+    
+    process = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+    if process.returncode != 0:
+        raise Exception(f"FFmpeg failed: {process.stderr}")
+        
     return video_path
 
 async def generate_signal_card_image(signal: Signal) -> str:
@@ -64,18 +75,8 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <head>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ 
-            width: 720px; height: 1280px; 
-            display: flex; align-items: center; justify-content: center; 
-            background: transparent !important; 
-        }}
-        .card {{ 
-            width: 650px; min-height: 800px;
-            background: rgba(10, 10, 15, 0.7); border: 2px solid rgba(0, 255, 136, 0.5); 
-            border-radius: 50px; padding: 50px; color: white; 
-            box-shadow: 0 10px 40px rgba(0,0,0,0.9);
-            display: flex; flex-direction: column; justify-content: center;
-        }}
+        body {{ width: 720px; height: 1280px; display: flex; align-items: center; justify-content: center; background: transparent !important; }}
+        .card {{ width: 650px; min-height: 800px; background: rgba(10, 10, 15, 0.7); border: 2px solid rgba(0, 255, 136, 0.5); border-radius: 50px; padding: 50px; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; }}
         .symbol {{ font-size: 60px; font-weight: bold; margin-bottom: 30px; }}
         .row {{ display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 28px; }}
         .green {{ color: #00ff88; font-weight: bold; }}
