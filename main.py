@@ -230,7 +230,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
         page = await browser.new_page(viewport={"width": 1080, "height": 1920})
         await page.set_content(html, wait_until='networkidle')
         await page.wait_for_timeout(500)
-        await page.screenshot(path=temp_image, full_page=False)
+        await page.screenshot(path=temp_image, full_page=False, omit_background=True)
         await browser.close()
     
     logger.info(f"Card image generated: {temp_image}")
