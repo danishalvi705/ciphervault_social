@@ -45,11 +45,13 @@ async def generate_video_with_background(signal: Signal) -> str:
     signal_image = await generate_signal_card_image(signal)
     video_path = f"/tmp/signal_{signal.id}.mp4"
     
-    # 720x1280 aligned overlay
+    # Pulse (scale) and Shake (vibration) applied via FFmpeg filter
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-i', str(bg_video), '-i', signal_image,
-        '-filter_complex', 'overlay=0:0', '-t', '8',
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', video_path
+        '-filter_complex', 
+        '[1:v]scale=w=iw*(1+0.02*sin(PI*t)):h=ih*(1+0.02*sin(PI*t))[scaled];'
+        '[0:v][scaled]overlay=(W-w)/2+random(4)-2:(H-h)/2+random(4)-2',
+        '-t', '8', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', video_path
     ]
     subprocess.run(ffmpeg_cmd, check=True)
     return video_path
