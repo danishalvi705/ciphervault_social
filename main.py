@@ -76,7 +76,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ width: 1080px; height: 1920px; display: flex; align-items: center; justify-content: center; background: transparent !important; }}
-        .card {{ width: 820px; background: rgba(5, 5, 10, 0.85); border: 2px solid rgba(0, 255, 136, 0.7); border-radius: 40px; padding: 60px; color: #ffffff; box-shadow: 0 10px 60px rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; }}
+        .card {{ width: 720px; background: rgba(5, 5, 10, 0.85); border: 2px solid rgba(0, 255, 136, 0.7); border-radius: 40px; padding: 60px; color: #ffffff; box-shadow: 0 10px 60px rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; }}
         .symbol {{ font-size: 68px; font-weight: bold; margin-bottom: 40px; color: #ffffff; }}
         .row {{ display: flex; justify-content: space-between; align-items: center; padding: 22px 0; border-bottom: 1px solid rgba(255,255,255,0.15); font-size: 38px; color: #ffffff; }}
         .row span:last-child {{ color: #ffffff; font-weight: 600; }}
