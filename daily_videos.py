@@ -197,12 +197,19 @@ async def generate_top_signals_video():
         badge_cls = "badge-long" if direction == "LONG" else "badge-short"
         grade = s.get("grade", "").split(" ")[0]
         score = s.get("score", 0)
+        status = s.get('status', 'pending')
+        if 'tp3' in status:   status_str, status_cls = 'TP3 ✅✅✅', 'green'
+        elif 'tp2' in status: status_str, status_cls = 'TP2 ✅✅',  'green'
+        elif 'tp1' in status: status_str, status_cls = 'TP1 ✅',    'green'
+        elif 'sl'  in status: status_str, status_cls = 'SL ❌',     'red'
+        elif status == 'active':  status_str, status_cls = 'ACTIVE 🟢', 'green'
+        else:                     status_str, status_cls = 'PENDING ⏳', 'gray'
         rows_html += f"""
         <div class="row">
-            <span style="font-size:24px">{s.get('symbol','')}</span>
-            <span class="badge {badge_cls}">{direction}</span>
-            <span class="yellow">{grade}</span>
-            <span class="gray">{score}/10</span>
+            <span style="font-size:22px">{s.get('symbol','')}</span>
+            <span class="badge {badge_cls}" style="font-size:16px">{direction}</span>
+            <span class="yellow" style="font-size:22px">{grade}</span>
+            <span class="{status_cls}" style="font-size:20px">{status_str}</span>
         </div>"""
 
     html = f"""<!DOCTYPE html><html><head><style>{BASE_CSS}</style></head><body>
