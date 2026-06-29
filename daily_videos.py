@@ -198,8 +198,8 @@ async def generate_top_signals_video():
         grade = s.get("grade", "").split(" ")[0]
         score = s.get("score", 0)
         status = s.get('status', 'pending')
-        if 'tp3' in status:   status_str, status_cls = 'TP3 ✅✅✅', 'green'
-        elif 'tp2' in status: status_str, status_cls = 'TP2 ✅✅',  'green'
+        if 'tp3' in status:   status_str, status_cls = 'TP3 ✅', 'green'
+        elif 'tp2' in status: status_str, status_cls = 'TP2 ✅', 'green'
         elif 'tp1' in status: status_str, status_cls = 'TP1 ✅',    'green'
         elif 'sl'  in status: status_str, status_cls = 'SL ❌',     'red'
         elif status == 'active':  status_str, status_cls = 'ACTIVE 🟢', 'green'
