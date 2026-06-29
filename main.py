@@ -76,7 +76,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ width: 1080px; height: 1920px; display: flex; align-items: center; justify-content: center; background: transparent !important; }}
-        .card {{ width: 920px; background: rgba(5, 5, 10, 0.85); border: 2px solid rgba(0, 255, 136, 0.7); border-radius: 40px; padding: 60px; color: #ffffff; box-shadow: 0 10px 60px rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; }}
+        .card {{ width: 960px; background: rgba(5, 5, 10, 0.85); border: 2px solid rgba(0, 255, 136, 0.7); border-radius: 40px; padding: 60px; color: #ffffff; box-shadow: 0 10px 60px rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; }}
         .symbol {{ font-size: 68px; font-weight: bold; margin-bottom: 40px; color: #ffffff; }}
         .row {{ display: flex; justify-content: space-between; align-items: center; padding: 22px 0; border-bottom: 1px solid rgba(255,255,255,0.15); font-size: 38px; color: #ffffff; }}
         .row span:last-child {{ color: #ffffff; font-weight: 600; }}
@@ -109,7 +109,7 @@ async def generate_signal_card_image(signal: Signal) -> str:
     temp_image = f"/tmp/card_{signal.id}.png"
     async with async_playwright() as p:
         browser = await p.chromium.launch(args=['--no-sandbox'])
-        page = await browser.new_page(viewport={"width": 720, "height": 1280})
+        page = await browser.new_page(viewport={"width": 1080, "height": 1920})
         await page.set_content(html, wait_until='networkidle')
         await page.screenshot(path=temp_image, omit_background=True)
         await browser.close()
