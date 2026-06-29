@@ -76,14 +76,16 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ width: 1080px; height: 1920px; display: flex; align-items: center; justify-content: center; background: transparent !important; }}
-        .card {{ width: 880px; min-height: 1200px; background: rgba(10, 10, 15, 0.7); border: 2px solid rgba(0, 255, 136, 0.5); border-radius: 50px; padding: 50px; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; }}
-        .symbol {{ font-size: 72px; font-weight: bold; margin-bottom: 30px; }}
-        .row {{ display: flex; justify-content: space-between; padding: 18px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 36px; }}
-        .green {{ color: #00ff88; font-weight: bold; }}
-        .red {{ color: #ff6b6b; font-weight: bold; }}
-        .footer {{ display: flex; justify-content: space-between; margin-top: 30px; gap: 10px; }}
-        .stat-box {{ flex: 1; background: rgba(255,255,255,0.05); padding: 20px; border-radius: 20px; text-align: center; }}
-        .disclaimer {{ margin-top: 30px; font-size: 14px; color: rgba(255,255,255,0.4); text-align: center; }}
+        .card {{ width: 920px; background: rgba(5, 5, 10, 0.85); border: 2px solid rgba(0, 255, 136, 0.7); border-radius: 40px; padding: 60px; color: #ffffff; box-shadow: 0 10px 60px rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; }}
+        .symbol {{ font-size: 68px; font-weight: bold; margin-bottom: 40px; color: #ffffff; }}
+        .row {{ display: flex; justify-content: space-between; align-items: center; padding: 22px 0; border-bottom: 1px solid rgba(255,255,255,0.15); font-size: 38px; color: #ffffff; }}
+        .row span:last-child {{ color: #ffffff; font-weight: 600; }}
+        .green {{ color: #00ff88 !important; font-weight: bold; }}
+        .red {{ color: #ff4444 !important; font-weight: bold; }}
+        .footer {{ display: flex; justify-content: space-between; margin-top: 40px; gap: 15px; }}
+        .stat-box {{ flex: 1; background: rgba(255,255,255,0.08); padding: 25px 10px; border-radius: 20px; text-align: center; color: #ffffff; font-size: 32px; }}
+        .stat-box b {{ display: block; font-size: 38px; margin-top: 8px; color: #00ff88; }}
+        .disclaimer {{ margin-top: 30px; font-size: 22px; color: rgba(255,255,255,0.5); text-align: center; }}
     </style>
     </head>
     <body>
