@@ -76,9 +76,9 @@ async def generate_signal_card_image(signal: Signal) -> str:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ width: 1080px; height: 1920px; display: flex; align-items: center; justify-content: center; background: transparent !important; }}
-        .card {{ width: 960px; min-height: 1400px; background: rgba(10, 10, 15, 0.7); border: 2px solid rgba(0, 255, 136, 0.5); border-radius: 50px; padding: 50px; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; }}
-        .symbol {{ font-size: 90px; font-weight: bold; margin-bottom: 30px; }}
-        .row {{ display: flex; justify-content: space-between; padding: 25px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 44px; }}
+        .card {{ width: 880px; min-height: 1200px; background: rgba(10, 10, 15, 0.7); border: 2px solid rgba(0, 255, 136, 0.5); border-radius: 50px; padding: 50px; color: white; box-shadow: 0 10px 40px rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; }}
+        .symbol {{ font-size: 72px; font-weight: bold; margin-bottom: 30px; }}
+        .row {{ display: flex; justify-content: space-between; padding: 18px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 36px; }}
         .green {{ color: #00ff88; font-weight: bold; }}
         .red {{ color: #ff6b6b; font-weight: bold; }}
         .footer {{ display: flex; justify-content: space-between; margin-top: 30px; gap: 10px; }}
