@@ -185,12 +185,20 @@ async def send_telegram(video_path, signal, token, chat_id):
 <b>R:R:</b> {signal.rr}x
 
 #crypto #ciphervault"""
-    with open(video_path, 'rb') as f:
-        requests.post(
-            f"https://api.telegram.org/bot{token}/sendVideo",
-            files={"video": f},
-            data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-        )
+    try:
+        with open(video_path, 'rb') as f:
+            response = await asyncio.to_thread(
+                requests.post,
+                f"https://api.telegram.org/bot{token}/sendVideo",
+                files={"video": f},
+                data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+                timeout=30
+            )
+            logger.info(f"[TELEGRAM] Sent to {chat_id} | Status: {response.status_code}")
+    except FileNotFoundError:
+        logger.error(f"[TELEGRAM] Video not found: {video_path}")
+    except Exception as e:
+        logger.error(f"[TELEGRAM] Failed: {e}")
 
 
 if __name__ == "__main__":
