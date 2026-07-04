@@ -88,9 +88,12 @@ async def trigger_daily(x_webhook_secret: str = Header(None)):
     """Manual trigger for testing — hits the same logic as the scheduler."""
     if x_webhook_secret != os.getenv("WEBHOOK_SECRET"):
         return {"status": "failed", "reason": "Unauthorized"}
-    import asyncio
-    asyncio.create_task(run_daily_videos())
-    return {"status": "triggered"}
+    try:
+        await run_daily_videos()
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Daily video error: {e}")
+        return {"status": "failed", "reason": str(e)}
 
 
 # ---------------------------------------------------------------------------
