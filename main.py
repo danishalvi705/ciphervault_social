@@ -1,208 +1,402 @@
-import asyncio
-from fastapi import FastAPI, Header
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+import aiohttp
 import os
-import requests
+import asyncio
+from datetime import datetime
+import json
 import subprocess
-import random
-import logging
 from pathlib import Path
-from playwright.async_api import async_playwright
-from contextlib import asynccontextmanager
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-from daily_videos import run_daily_videos
+import random
 
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+app = FastAPI()
 
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+CIPHERVAULT_API = os.getenv("CIPHERVAULT_API", "http://168.144.131.132:8000")
+BACKGROUNDS_DIR = Path("./backgrounds")
 
-# ---------------------------------------------------------------------------
-# Scheduler lifespan
-# ---------------------------------------------------------------------------
+BACKGROUNDS_DIR.mkdir(exist_ok=True)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    scheduler = AsyncIOScheduler()
-    # Run all daily videos at 7PM UTC every day
-    scheduler.add_job(
-        run_daily_videos,
-        CronTrigger(hour=19, minute=0, timezone="UTC"),
-        id="daily_videos",
-        name="Daily Video Generator",
-        replace_existing=True,
-    )
-    scheduler.start()
-    logger.info("✅ Scheduler started — daily videos at 19:00 UTC")
-    yield
-    scheduler.shutdown()
-    logger.info("Scheduler stopped.")
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
-
-app = FastAPI(lifespan=lifespan)
-
-
-# ---------------------------------------------------------------------------
-# Signal model & webhook endpoint (unchanged)
-# ---------------------------------------------------------------------------
-
-class Signal(BaseModel):
-    id: str
-    symbol: str
-    side: str
-    entry: float
-    tp: list
-    sl: float
-    grade: str
-    score: float
-    rr: float
-
-class PublishRequest(BaseModel):
-    signal: Signal
-    ohlcv: list
-
-BACKGROUND_DIR = "./backgrounds"
-
-@app.post("/publish")
-async def publish(request: PublishRequest, x_webhook_secret: str = Header(None)):
-    if x_webhook_secret != os.getenv("WEBHOOK_SECRET"):
-        return {"status": "failed", "reason": "Unauthorized"}
+async def query_ciphervault_api(endpoint: str):
+    """Query DigitalOcean CipherVault API"""
     try:
-        video_path = await generate_video_with_background(request.signal)
-        token, chat_id = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
-        if token and chat_id:
-            await send_telegram(video_path, request.signal, token, chat_id)
-        return {"status": "success", "video": video_path}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{CIPHERVAULT_API}{endpoint}", timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                return await resp.json()
     except Exception as e:
-        logger.error(f"Publish error: {str(e)}")
-        return {"status": "failed", "reason": str(e)}
+        print(f"API Error: {e}")
+        return None
+
+
+async def post_to_telegram(video_path: str, caption: str):
+    """Post video to Telegram"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo"
+        
+        with open(video_path, 'rb') as f:
+            data = aiohttp.FormData()
+            data.add_field('chat_id', TELEGRAM_CHAT_ID)
+            data.add_field('video', f, filename=Path(video_path).name)
+            data.add_field('caption', caption)
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=data) as resp:
+                    result = await resp.json()
+                    print(f"✅ Telegram posted: {result.get('ok')}")
+                    return result
+    except Exception as e:
+        print(f"❌ Telegram error: {e}")
+        return None
+
+
+def render_html_to_screenshot(html: str, output_path: str):
+    """Render HTML to PNG using Playwright"""
+    from playwright.sync_api import sync_playwright
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={"width": 1080, "height": 1920})
+            page.set_content(html)
+            page.screenshot(path=output_path)
+            browser.close()
+        print(f"✅ Screenshot: {output_path}")
+    except Exception as e:
+        print(f"❌ Screenshot error: {e}")
+        raise
+
+
+def overlay_on_background(screenshot_path: str, output_video: str):
+    """Overlay screenshot on random background video using FFmpeg"""
+    try:
+        bg_files = list(BACKGROUNDS_DIR.glob("bg*.mp4"))
+        if not bg_files:
+            raise Exception("No background videos found in ./backgrounds/")
+        
+        bg_video = random.choice(bg_files)
+        print(f"Using background: {bg_video.name}")
+        
+        cmd = [
+            "ffmpeg",
+            "-i", str(bg_video),
+            "-i", screenshot_path,
+            "-filter_complex",
+            "[0]scale=1080:1920[bg];[bg][1]overlay=(W-w)/2:(H-h)/2:shortest=1[v]",
+            "-map", "[v]",
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-y",
+            output_video
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            raise Exception(f"FFmpeg error: {result.stderr}")
+        
+        print(f"✅ Video: {output_video}")
+        return output_video
+    except Exception as e:
+        print(f"❌ FFmpeg error: {e}")
+        raise
+
+
+# ============================================================================
+# VIDEO GENERATION ENDPOINTS
+# ============================================================================
+
+@app.post("/generate-top-gainer")
+async def generate_top_gainer():
+    """Generate Top Gainer video"""
+    try:
+        data = await query_ciphervault_api("/api/v1/top-gainer")
+        if not data or "error" in data:
+            return {"error": data.get("error", "API error")}
+        
+        symbol = data['symbol']
+        percent_gain = data['percent_gain']
+        signal_type = data['signal_type'].replace('_', ' ').title()
+        
+        html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+                .title {{ font-size: 48px; color: #ff6b35; margin-bottom: 40px; font-weight: bold; }}
+                .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
+                .percent {{ font-size: 80px; color: #00ff41; font-weight: bold; margin: 30px 0; }}
+                .type {{ font-size: 32px; color: #888; margin: 20px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="title">🔥 TODAY'S TOP MOVER 🔥</div>
+                <div class="symbol">{symbol}</div>
+                <div class="percent">📈 +{percent_gain}%</div>
+                <div class="type">{signal_type}</div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        screenshot = "/tmp/top_gainer.png"
+        render_html_to_screenshot(html, screenshot)
+        
+        output_video = f"/tmp/top_gainer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        
+        caption = f"🔥 Today's Top Mover!\n\n{symbol}\n+{percent_gain}% 📈\n\n{signal_type}\n\n#CipherVault #Trading"
+        await post_to_telegram(output_video, caption)
+        
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/generate-fear-greed")
+async def generate_fear_greed():
+    """Generate Fear & Greed video"""
+    try:
+        data = await query_ciphervault_api("/api/v1/fear-greed")
+        if not data or "error" in data:
+            return {"error": data.get("error", "API error")}
+        
+        value = data['value']
+        sentiment = data['sentiment'].replace('_', ' ').title()
+        
+        if value < 25:
+            color = "#ff0000"
+            emoji = "😱"
+        elif value < 45:
+            color = "#ff6b35"
+            emoji = "😟"
+        elif value < 55:
+            color = "#ffaa00"
+            emoji = "😐"
+        elif value < 75:
+            color = "#00ff41"
+            emoji = "😊"
+        else:
+            color = "#00aa00"
+            emoji = "🚀"
+        
+        html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+                .title {{ font-size: 48px; color: #ffffff; margin-bottom: 40px; }}
+                .gauge {{ font-size: 120px; color: {color}; font-weight: bold; margin: 30px 0; }}
+                .sentiment {{ font-size: 44px; color: {color}; margin: 20px 0; font-weight: bold; }}
+                .emoji {{ font-size: 80px; margin: 20px 0; }}
+                .message {{ font-size: 32px; color: #999; margin-top: 40px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="title">📊 MARKET SENTIMENT TODAY 📊</div>
+                <div class="emoji">{emoji}</div>
+                <div class="gauge">{value}</div>
+                <div class="sentiment">{sentiment}</div>
+                <div class="message">Best time to take profits?</div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        screenshot = "/tmp/fear_greed.png"
+        render_html_to_screenshot(html, screenshot)
+        
+        output_video = f"/tmp/fear_greed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        
+        caption = f"📊 Market Sentiment: {sentiment}\n\nFear & Greed Index: {value}\n\n{emoji}\n\n#CipherVault #Crypto"
+        await post_to_telegram(output_video, caption)
+        
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/generate-btc-dominance")
+async def generate_btc_dominance():
+    """Generate BTC Dominance video"""
+    try:
+        data = await query_ciphervault_api("/api/v1/btc-dominance")
+        if not data or "error" in data:
+            return {"error": data.get("error", "API error")}
+        
+        dominance = data['dominance']
+        verdict = data['verdict']
+        regime = data['regime']
+        message = data['message']
+        
+        html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+                .title {{ font-size: 48px; color: #ffffff; margin-bottom: 40px; font-weight: bold; }}
+                .dominance {{ font-size: 72px; color: #ffaa00; font-weight: bold; margin: 20px 0; }}
+                .verdict {{ font-size: 52px; color: #ffffff; margin: 30px 0; font-weight: bold; }}
+                .message {{ font-size: 36px; color: #999; margin: 20px 0; }}
+                .regime {{ font-size: 40px; color: #00ff41; margin-top: 40px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="title">BTC DOMINANCE VERDICT</div>
+                <div class="dominance">BTC: {dominance}%</div>
+                <div class="verdict">{verdict}</div>
+                <div class="message">"{message}"</div>
+                <div class="regime">BTC Trend: {regime}</div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        screenshot = "/tmp/btc_dominance.png"
+        render_html_to_screenshot(html, screenshot)
+        
+        output_video = f"/tmp/btc_dominance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        
+        caption = f"📊 BTC Dominance: {dominance}%\n\n{verdict}\n\n{message}\n\nTrend: {regime}\n\n#CipherVault #Bitcoin"
+        await post_to_telegram(output_video, caption)
+        
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/generate-signal-reveal")
+async def generate_signal_reveal():
+    """Generate Signal Reveal video"""
+    try:
+        data = await query_ciphervault_api("/api/v1/signal-reveal")
+        if not data or "error" in data:
+            return {"error": data.get("error", "API error")}
+        
+        symbol = data['symbol']
+        entry = data['entry_price']
+        tp = data['tp_price']
+        gain = data['percent_gain']
+        days = data['days_held']
+        signal_type = data['signal_type'].replace('_', ' ').title()
+        
+        html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+                .checkmark {{ font-size: 80px; color: #00ff41; margin-bottom: 20px; }}
+                .title {{ font-size: 44px; color: #00ff41; margin-bottom: 30px; font-weight: bold; }}
+                .symbol {{ font-size: 56px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
+                .prices {{ font-size: 36px; color: #999; margin: 20px 0; }}
+                .price-hit {{ font-size: 40px; color: #00ff41; margin: 10px 0; }}
+                .gain {{ font-size: 64px; color: #00ff41; font-weight: bold; margin: 20px 0; }}
+                .days {{ font-size: 32px; color: #888; margin: 10px 0; }}
+                .type {{ font-size: 28px; color: #666; margin-top: 30px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="checkmark">✅</div>
+                <div class="title">WE CALLED THIS 3+ DAYS AGO</div>
+                <div class="symbol">{symbol}</div>
+                <div class="prices">Entry: ${entry:.4f}</div>
+                <div class="price-hit">Target Hit: ${tp:.4f} ✅</div>
+                <div class="gain">+{gain}%</div>
+                <div class="days">{days} Days Held</div>
+                <div class="type">{signal_type}</div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        screenshot = "/tmp/signal_reveal.png"
+        render_html_to_screenshot(html, screenshot)
+        
+        output_video = f"/tmp/signal_reveal_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        
+        caption = f"✅ Signal Reveal!\n\n{symbol}\nEntry: ${entry:.4f}\nTarget Hit: ${tp:.4f}\n\n+{gain}% Gain 🎯\n\n{days} Days Held\n\n#{signal_type.replace(' ', '')}\n#CipherVault"
+        await post_to_telegram(output_video, caption)
+        
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/generate-weekly-leaderboard")
+async def generate_weekly_leaderboard():
+    """Generate Weekly Leaderboard video"""
+    try:
+        data = await query_ciphervault_api("/api/v1/weekly-leaderboard")
+        if not data or "error" in data:
+            return {"error": data.get("error", "API error")}
+        
+        signals = data.get('signals', [])
+        total_gain = data.get('total_gain', 0)
+        
+        leaderboard_text = ""
+        medals = ["🥇", "🥈", "🥉"]
+        for i, sig in enumerate(signals):
+            medal = medals[i] if i < 3 else f"{i+1}."
+            leaderboard_text += f"\n{medal} {sig['symbol']}  +{sig['percent_gain']}%"
+        
+        if not leaderboard_text:
+            leaderboard_text = "\nNo winners this week yet"
+        
+        html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+                .title {{ font-size: 48px; color: #ffaa00; margin-bottom: 40px; font-weight: bold; }}
+                .leaderboard {{ font-size: 40px; color: #ffffff; margin: 30px 0; line-height: 1.8; font-family: monospace; }}
+                .medal {{ font-size: 60px; }}
+                .total {{ font-size: 44px; color: #00ff41; margin-top: 40px; font-weight: bold; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="title">THIS WEEK'S TOP 3 SIGNALS 🏆</div>
+                <div class="leaderboard">{leaderboard_text}</div>
+                <div class="total">Total: +{total_gain}% 🎯</div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        screenshot = "/tmp/weekly_leaderboard.png"
+        render_html_to_screenshot(html, screenshot)
+        
+        output_video = f"/tmp/weekly_leaderboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        
+        caption = f"🏆 This Week's Top 3 Signals\n{leaderboard_text}\n\nTotal Gains: +{total_gain}%\n\n#CipherVault #Trading"
+        await post_to_telegram(output_video, caption)
+        
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-
-
-@app.post("/trigger-daily")
-async def trigger_daily(x_webhook_secret: str = Header(None)):
-    """Manual trigger for testing — hits the same logic as the scheduler."""
-    if x_webhook_secret != os.getenv("WEBHOOK_SECRET"):
-        return {"status": "failed", "reason": "Unauthorized"}
-    try:
-        await run_daily_videos()
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Daily video error: {e}")
-        return {"status": "failed", "reason": str(e)}
-
-
-# ---------------------------------------------------------------------------
-# Video generation (unchanged from your original)
-# ---------------------------------------------------------------------------
-
-async def generate_video_with_background(signal: Signal) -> str:
-    bg_path = Path(BACKGROUND_DIR)
-    bg_videos = list(bg_path.glob("*.mp4"))
-    if not bg_videos:
-        raise Exception("No background videos found in ./backgrounds")
-    bg_video = random.choice(bg_videos)
-
-    signal_image = await generate_signal_card_image(signal)
-    video_path = f"/tmp/signal_{signal.id}.mp4"
-
-    ffmpeg_cmd = [
-        'ffmpeg', '-y', '-i', str(bg_video), '-i', signal_image,
-        '-filter_complex', '[0:v][1:v]overlay=(W-w)/2:(H-h)/2',
-        '-t', '8', '-c:v', 'libx264', '-preset', 'ultrafast',
-        '-pix_fmt', 'yuv420p', video_path
-    ]
-
-    process = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
-    if process.returncode != 0:
-        raise Exception(f"FFmpeg failed: {process.stderr}")
-
-    return video_path
-
-
-async def generate_signal_card_image(signal: Signal) -> str:
-    tp_values = signal.tp + [0.0, 0.0, 0.0]
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ width: 1080px; height: 1920px; display: flex; align-items: center; justify-content: center; background: transparent !important; }}
-        .card {{ width: 700px; background: rgba(5, 5, 10, 0.55); border: 2px solid rgba(0, 255, 136, 0.7); border-radius: 40px; padding: 40px 50px; color: #ffffff; box-shadow: 0 10px 60px rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; }}
-        .symbol {{ font-size: 52px; font-weight: bold; margin-bottom: 25px; color: #ffffff; }}
-        .row {{ display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.15); font-size: 30px; color: #ffffff; }}
-        .row span:last-child {{ color: #ffffff; font-weight: 600; }}
-        .green {{ color: #00ff88 !important; font-weight: bold; }}
-        .red {{ color: #ff4444 !important; font-weight: bold; }}
-        .footer {{ display: flex; justify-content: space-between; margin-top: 35px; gap: 15px; }}
-        .stat-box {{ flex: 1; background: rgba(255,255,255,0.08); padding: 20px 10px; border-radius: 20px; text-align: center; color: #ffffff; font-size: 30px; }}
-        .stat-box b {{ display: block; font-size: 36px; margin-top: 8px; color: #00ff88; }}
-        .disclaimer {{ margin-top: 25px; font-size: 20px; color: rgba(255,255,255,0.5); text-align: center; }}
-    </style>
-    </head>
-    <body>
-        <div class="card">
-            <div class="symbol">{signal.symbol}</div>
-            <div class="row"><span>ENTRY</span><span class="green">${signal.entry:,.2f}</span></div>
-            <div class="row"><span>TP1</span><span>${tp_values[0]:,.2f}</span></div>
-            <div class="row"><span>TP2</span><span>${tp_values[1]:,.2f}</span></div>
-            <div class="row"><span>TP3</span><span>${tp_values[2]:,.2f}</span></div>
-            <div class="row"><span>SL</span><span class="red">${signal.sl:,.2f}</span></div>
-            <div class="footer">
-                <div class="stat-box">GRADE<br><b>{signal.grade}</b></div>
-                <div class="stat-box">SCORE<br><b>{signal.score}</b></div>
-                <div class="stat-box">R:R<br><b>{signal.rr}x</b></div>
-            </div>
-            <div class="disclaimer">Disclaimer: Trading is risky. Not financial advice.</div>
-        </div>
-    </body>
-    </html>
-    """
-    temp_image = f"/tmp/card_{signal.id}.png"
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(args=['--no-sandbox'])
-        page = await browser.new_page(viewport={"width": 1080, "height": 1920})
-        await page.set_content(html, wait_until='networkidle')
-        await page.screenshot(path=temp_image, omit_background=True)
-        await browser.close()
-    return temp_image
-
-
-async def send_telegram(video_path, signal, token, chat_id):
-    caption = f"""#Trade_alert
-
-<b>{signal.symbol}</b>
-<b>Side:</b> {signal.side.upper()}
-<b>Entry:</b> ${signal.entry:,.2f}
-<b>TP1:</b> ${signal.tp[0]:,.2f}
-<b>TP2:</b> ${signal.tp[1]:,.2f}
-<b>TP3:</b> ${signal.tp[2]:,.2f}
-<b>SL:</b> ${signal.sl:,.2f}
-
-<b>Grade:</b> {signal.grade}
-<b>Score:</b> {signal.score}
-<b>R:R:</b> {signal.rr}x
-
-#crypto #ciphervault"""
-    try:
-        with open(video_path, 'rb') as f:
-            response = await asyncio.to_thread(
-                requests.post,
-                f"https://api.telegram.org/bot{token}/sendVideo",
-                files={"video": f},
-                data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
-                timeout=30
-            )
-            logger.info(f"[TELEGRAM] Sent to {chat_id} | Status: {response.status_code}")
-    except FileNotFoundError:
-        logger.error(f"[TELEGRAM] Video not found: {video_path}")
-    except Exception as e:
-        logger.error(f"[TELEGRAM] Failed: {e}")
 
 
 if __name__ == "__main__":
