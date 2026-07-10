@@ -10,6 +10,14 @@ from pathlib import Path
 import random
 
 app = FastAPI()
+video_generation_lock = asyncio.Lock()
+
+def with_video_lock(func):
+    async def wrapper(*args, **kwargs):
+        async with video_generation_lock:
+            return await func(*args, **kwargs)
+    wrapper.__name__ = func.__name__
+    return wrapper
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -60,7 +68,13 @@ def render_html_to_screenshot(html: str, output_path: str):
     
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(args=[
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--single-process",
+                "--disable-extensions",
+            ])
             page = browser.new_page(viewport={"width": 1080, "height": 1920})
             page.set_content(html)
             page.screenshot(path=output_path)
@@ -112,6 +126,7 @@ def overlay_on_background(screenshot_path: str, output_video: str):
 # ============================================================================
 
 @app.post("/generate-top-gainer")
+@with_video_lock
 async def generate_top_gainer():
     """Generate Top Gainer video"""
     try:
@@ -161,6 +176,7 @@ async def generate_top_gainer():
 
 
 @app.post("/generate-fear-greed")
+@with_video_lock
 async def generate_fear_greed():
     """Generate Fear & Greed video"""
     try:
@@ -227,6 +243,7 @@ async def generate_fear_greed():
 
 
 @app.post("/generate-btc-dominance")
+@with_video_lock
 async def generate_btc_dominance():
     """Generate BTC Dominance video"""
     try:
@@ -279,6 +296,7 @@ async def generate_btc_dominance():
 
 
 @app.post("/generate-signal-reveal")
+@with_video_lock
 async def generate_signal_reveal():
     """Generate Signal Reveal video"""
     try:
@@ -339,6 +357,7 @@ async def generate_signal_reveal():
 
 
 @app.post("/generate-weekly-leaderboard")
+@with_video_lock
 async def generate_weekly_leaderboard():
     """Generate Weekly Leaderboard video"""
     try:
