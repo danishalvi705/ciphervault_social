@@ -426,6 +426,17 @@ async def test_news_debug():
         "decrypt_count": len(fetch_decrypt_headlines()),
     }
 
+
+@app.get("/test-news-headlines")
+async def test_news_headlines():
+    from news_fetch import fetch_coindesk_headlines, fetch_cointelegraph_headlines, fetch_decrypt_headlines, extract_coin_from_headline
+    all_headlines = fetch_coindesk_headlines() + fetch_cointelegraph_headlines() + fetch_decrypt_headlines()
+    results = []
+    for h in all_headlines:
+        coin_id, symbol_hit = extract_coin_from_headline(h["title"])
+        results.append({"title": h["title"], "source": h["source"], "matched_coin": symbol_hit})
+    return {"headlines": results}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
