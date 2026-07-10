@@ -147,7 +147,7 @@ async def generate_top_gainer():
         """
         
         screenshot = "/tmp/top_gainer.png"
-        render_html_to_screenshot(html, screenshot)
+        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
         
         output_video = f"/tmp/top_gainer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
@@ -213,7 +213,7 @@ async def generate_fear_greed():
         """
         
         screenshot = "/tmp/fear_greed.png"
-        render_html_to_screenshot(html, screenshot)
+        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
         
         output_video = f"/tmp/fear_greed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
@@ -265,7 +265,7 @@ async def generate_btc_dominance():
         """
         
         screenshot = "/tmp/btc_dominance.png"
-        render_html_to_screenshot(html, screenshot)
+        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
         
         output_video = f"/tmp/btc_dominance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
@@ -325,7 +325,7 @@ async def generate_signal_reveal():
         """
         
         screenshot = "/tmp/signal_reveal.png"
-        render_html_to_screenshot(html, screenshot)
+        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
         
         output_video = f"/tmp/signal_reveal_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
@@ -381,7 +381,7 @@ async def generate_weekly_leaderboard():
         """
         
         screenshot = "/tmp/weekly_leaderboard.png"
-        render_html_to_screenshot(html, screenshot)
+        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
         
         output_video = f"/tmp/weekly_leaderboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
