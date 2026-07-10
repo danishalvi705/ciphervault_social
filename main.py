@@ -416,6 +416,16 @@ async def test_news():
     except Exception as e:
         return {"error": str(e)}
 
+
+@app.get("/test-news-debug")
+async def test_news_debug():
+    from news_fetch import fetch_coindesk_headlines, fetch_cointelegraph_headlines, fetch_decrypt_headlines
+    return {
+        "coindesk_count": len(fetch_coindesk_headlines()),
+        "cointelegraph_count": len(fetch_cointelegraph_headlines()),
+        "decrypt_count": len(fetch_decrypt_headlines()),
+    }
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
