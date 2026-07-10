@@ -12,11 +12,13 @@ import random
 app = FastAPI()
 video_generation_lock = asyncio.Lock()
 
+import functools
+
 def with_video_lock(func):
+    @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         async with video_generation_lock:
             return await func(*args, **kwargs)
-    wrapper.__name__ = func.__name__
     return wrapper
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
