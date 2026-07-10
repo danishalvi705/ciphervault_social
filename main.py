@@ -437,6 +437,13 @@ async def test_news_headlines():
         results.append({"title": h["title"], "source": h["source"], "matched_coin": symbol_hit})
     return {"headlines": results}
 
+
+@app.get("/test-price-debug")
+async def test_price_debug():
+    from news_fetch import get_price_change
+    result = get_price_change("bitcoin")
+    return {"price_data": result}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
