@@ -1,0 +1,14 @@
+name: Keep Backend Alive
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render backend
+        run: |
+          curl --fail https://ciphervault-social.onrender.com/health
+          echo "Pinged at $(date)"
