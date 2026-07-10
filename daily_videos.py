@@ -555,3 +555,319 @@ async def run_daily_videos():
     for i, r in enumerate(results):
         if isinstance(r, Exception):
             logger.error(f"[Daily Video {i}] Failed: {r}")
+
+# ---------------------------------------------------------------------------
+# 5. Educational Video (topic bank, rotating)
+# ---------------------------------------------------------------------------
+import json
+
+TOPICS_FILE = "./topics.json"
+TOPICS_STATE_FILE = "./topics_state.json"
+
+def _load_json(path):
+    with open(path, "r") as f:
+        return json.load(f)
+
+def _save_json(path, data):
+    with open(path, "w") as f:
+        json.dump(data, f)
+
+def get_next_topic():
+    topics = _load_json(TOPICS_FILE)["topics"]
+    state = _load_json(TOPICS_STATE_FILE)
+    next_index = (state["last_index"] + 1) % len(topics)
+    state["last_index"] = next_index
+    _save_json(TOPICS_STATE_FILE, state)
+    return topics[next_index]
+
+async def generate_educational_video():
+    logger.info("[Daily] Generating Educational video...")
+    topic = get_next_topic()
+    today = datetime.now(timezone.utc).date()
+    points_html = "".join(
+        f'<div class="row"><span style="font-size:26px">• {p}</span></div>'
+        for p in topic["points"]
+    )
+    html = f"""<!DOCTYPE html><html><head><style>{BASE_CSS}</style></head><body>
+    <div class="card">
+        <div class="header">CipherVault Learn</div>
+        <div class="title">📚 {topic['title']}</div>
+        <div class="divider"></div>
+        {points_html}
+        <div class="footer-note">Follow for daily crypto fundamentals.</div>
+    </div>
+    </body></html>"""
+    img = f"/tmp/edu_{topic['id']}_{today}.png"
+    vid = f"/tmp/edu_{topic['id']}_{today}.mp4"
+    await html_to_image(html, img)
+    image_to_video(img, vid, duration=10)
+    points_text = chr(10).join([f"• {p}" for p in topic["points"]])
+    caption = f"""📚 <b>{topic['title']}</b>
+{points_text}
+#CipherVault #crypto #learn #education"""
+    await send_telegram_video(vid, caption)
+    logger.info("[Daily] Educational video sent!")
+    return vid
+
+# ---------------------------------------------------------------------------
+# 6. News Impact Video (live, cross-referenced across 3 sources)
+# ---------------------------------------------------------------------------
+COIN_MAP = {
+    "bitcoin": "bitcoin", "btc": "bitcoin",
+    "ethereum": "ethereum", "eth": "ethereum",
+    "solana": "solana", "sol": "solana",
+    "xrp": "ripple", "ripple": "ripple",
+    "bnb": "binancecoin", "binance coin": "binancecoin",
+    "cardano": "cardano", "ada": "cardano",
+    "dogecoin": "dogecoin", "doge": "dogecoin",
+    "polygon": "matic-network", "matic": "matic-network",
+    "avalanche": "avalanche-2", "avax": "avalanche-2",
+    "chainlink": "chainlink", "link": "chainlink",
+}
+
+def fetch_cryptopanic_news():
+    token = os.getenv("CRYPTOPANIC_API_KEY", "")
+    if not token:
+        return []
+    try:
+        resp = requests.get(
+            f"https://cryptopanic.com/api/v1/posts/?auth_token={token}&filter=hot&public=true",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json().get("results", [])
+    except Exception as e:
+        logger.warning(f"CryptoPanic fetch failed: {e}")
+        return []
+
+def fetch_coindesk_rss():
+    try:
+        resp = requests.get("https://www.coindesk.com/arc/outboundfeeds/rss/", timeout=10)
+        resp.raise_for_status()
+        import re
+        titles = re.findall(r"<title>(.*?)</title>", resp.text)
+        return titles[1:11]  # skip feed title itself
+    except Exception as e:
+        logger.warning(f"CoinDesk RSS fetch failed: {e}")
+        return []
+
+def detect_coin(headline: str):
+    headline_lower = headline.lower()
+    for keyword, coingecko_id in COIN_MAP.items():
+        if keyword in headline_lower:
+            return keyword.upper(), coingecko_id
+    return None, None
+
+def fetch_price_change(coingecko_id: str):
+    try:
+        resp = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={
+                "ids": coingecko_id,
+                "vs_currencies": "usd",
+                "include_24hr_change": "true",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get(coingecko_id, {})
+        return data.get("usd"), data.get("usd_24h_change")
+    except Exception as e:
+        logger.warning(f"CoinGecko fetch failed: {e}")
+        return None, None
+
+def pick_top_headline():
+    """Cross-references CryptoPanic + CoinDesk, prefers one that mentions a known coin."""
+    headlines = []
+    for post in fetch_cryptopanic_news():
+        title = post.get("title", "")
+        if title:
+            headlines.append(title)
+    headlines.extend(fetch_coindesk_rss())
+
+    for h in headlines:
+        symbol, cg_id = detect_coin(h)
+        if symbol:
+            return h, symbol, cg_id
+
+    if headlines:
+        return headlines[0], None, None
+    return None, None, None
+
+async def generate_news_impact_video():
+    logger.info("[Daily] Generating News Impact video...")
+    headline, symbol, cg_id = pick_top_headline()
+    if not headline:
+        logger.warning("[News] No headline found from any source, skipping.")
+        return None
+
+    today = datetime.now(timezone.utc).date()
+    price, change_24h = (None, None)
+    if cg_id:
+        price, change_24h = fetch_price_change(cg_id)
+
+    if change_24h is not None:
+        move_color = "green" if change_24h >= 0 else "red"
+        move_str = f"{'+' if change_24h >= 0 else ''}{change_24h:.2f}%"
+        impact_line = f"{symbol} moved {move_str} in the last 24h on this news."
+    else:
+        move_color = "gray"
+        move_str = "N/A"
+        impact_line = "Market impact still developing — watch price action closely."
+
+    html = f"""<!DOCTYPE html><html><head><style>{BASE_CSS}</style></head><body>
+    <div class="card">
+        <div class="header">CipherVault News</div>
+        <div class="title" style="font-size:36px">📰 {headline}</div>
+        <div class="divider"></div>
+        <div class="row">
+            <span>Coin</span>
+            <span class="yellow">{symbol or 'Market-wide'}</span>
+        </div>
+        <div class="row">
+            <span>24h Move</span>
+            <span class="{move_color}">{move_str}</span>
+        </div>
+        <div class="footer-note">{impact_line}</div>
+    </div>
+    </body></html>"""
+    img = f"/tmp/news_{today}_{datetime.now().strftime('%H%M%S')}.png"
+    vid = f"/tmp/news_{today}_{datetime.now().strftime('%H%M%S')}.mp4"
+    await html_to_image(html, img)
+    image_to_video(img, vid, duration=10)
+    caption = f"""📰 <b>{headline}</b>
+Coin: <b>{symbol or 'Market-wide'}</b>
+24h Move: <b>{move_str}</b>
+{impact_line}
+#CipherVault #crypto #news"""
+    await send_telegram_video(vid, caption)
+    logger.info("[Daily] News Impact video sent!")
+    return vid
+
+# ---------------------------------------------------------------------------
+# Sequential runner (memory-safe for 1GB droplet) — REPLACES run_daily_videos
+# ---------------------------------------------------------------------------
+async def run_daily_videos_v2():
+    """Runs each video one at a time with a cooldown to avoid OOM on 1GB RAM."""
+    today_weekday = datetime.now(timezone.utc).weekday()  # 5 = Saturday
+    day_of_year = datetime.now(timezone.utc).timetuple().tm_yday
+    alternate_educational = (day_of_year % 2 == 0)  # even day = educational, odd = news
+
+    jobs = [
+        ("Top Signals", generate_top_signals_video),
+        ("Market Summary", generate_market_summary_video),
+        ("Fear & Greed", generate_fear_greed_video),
+    ]
+    if alternate_educational:
+        jobs.append(("Educational", generate_educational_video))
+    else:
+        jobs.append(("News Impact", generate_news_impact_video))
+    if today_weekday == 5:
+        jobs.append(("Weekly Leaderboard", generate_weekly_leaderboard_video))
+
+    COOLDOWN_SECONDS = 45  # gives ffmpeg/playwright time to release memory between runs
+
+    for name, job_fn in jobs:
+        try:
+            logger.info(f"[Sequential] Starting {name}...")
+            await job_fn()
+        except Exception as e:
+            logger.error(f"[Sequential] {name} failed: {e}")
+        await asyncio.sleep(COOLDOWN_SECONDS)
+
+# ---------------------------------------------------------------------------
+# 5. Educational Video (topic bank rotation)
+# ---------------------------------------------------------------------------
+async def generate_educational_video():
+    import json
+    logger.info("[Educational] Generating video...")
+
+    with open("topics.json") as f:
+        topics = json.load(f)
+    with open("used_topics.json") as f:
+        used_ids = json.load(f)
+
+    remaining = [t for t in topics if t["id"] not in used_ids]
+    if not remaining:
+        used_ids = []
+        remaining = topics
+
+    topic = remaining[0]
+    used_ids.append(topic["id"])
+    with open("used_topics.json", "w") as f:
+        json.dump(used_ids, f)
+
+    today = datetime.now(timezone.utc).date()
+    html = f"""<!DOCTYPE html><html><head><style>{BASE_CSS}</style></head><body>
+    <div class="card">
+        <div class="header">{topic['header']}</div>
+        <div class="title">{topic['title']}</div>
+        <div class="divider"></div>
+        <div style="font-size:30px;line-height:1.6;color:#ffffff;margin:20px 0">
+            {topic['script']}
+        </div>
+        <div class="footer-note">CipherVault Learn | Not financial advice.</div>
+    </div>
+    </body></html>"""
+
+    img = f"/tmp/edu_{topic['id']}_{today}.png"
+    vid = f"/tmp/edu_{topic['id']}_{today}.mp4"
+    await html_to_image(html, img)
+    image_to_video(img, vid, duration=15)
+
+    caption = f"📚 <b>{topic['title']}</b>\n\n{topic['script']}\n\n{topic['cta']}\n\n#CipherVault #CryptoEducation #Learn"
+    await send_telegram_video(vid, caption)
+    logger.info(f"[Educational] Video sent — topic: {topic['title']}")
+    return vid
+
+
+# ---------------------------------------------------------------------------
+# 6. News Impact Video (fully live, no static fallback)
+# ---------------------------------------------------------------------------
+async def generate_news_impact_video():
+    from news_fetch import get_top_news_with_impact
+    logger.info("[News] Generating video...")
+
+    story = get_top_news_with_impact()
+    if not story:
+        logger.warning("[News] No usable live story found today — skipping this run.")
+        return None
+
+    change_24h = round(story["change_24h"], 2)
+    direction = "🟢" if change_24h >= 0 else "🔴"
+    color = "#00ff88" if change_24h >= 0 else "#ff4444"
+    sign = "+" if change_24h >= 0 else ""
+
+    today = datetime.now(timezone.utc).date()
+    html = f"""<!DOCTYPE html><html><head><style>{BASE_CSS}</style></head><body>
+    <div class="card">
+        <div class="header">📰 CRYPTO NEWS IMPACT</div>
+        <div class="title" style="font-size:36px">{story['headline']}</div>
+        <div class="divider"></div>
+        <div class="row">
+            <span>Coin</span><span class="yellow">{story['symbol']}</span>
+        </div>
+        <div class="row">
+            <span>24h Move</span><span style="color:{color};font-weight:bold">{direction} {sign}{change_24h}%</span>
+        </div>
+        <div class="row">
+            <span>Price</span><span class="gray">${story['price']:,}</span>
+        </div>
+        <div class="footer-note">Source: {story['source']} | Not financial advice.</div>
+    </div>
+    </body></html>"""
+
+    img = f"/tmp/news_{today}.png"
+    vid = f"/tmp/news_{today}.mp4"
+    await html_to_image(html, img)
+    image_to_video(img, vid, duration=12)
+
+    caption = (
+        f"📰 <b>{story['headline']}</b>\n\n"
+        f"{story['symbol']} {direction} {sign}{change_24h}% (24h)\n"
+        f"Price: ${story['price']:,}\n\n"
+        f"Source: {story['source']}\n\n#CipherVault #CryptoNews #Bitcoin"
+    )
+    await send_telegram_video(vid, caption)
+    logger.info(f"[News] Video sent — {story['headline']}")
+    return vid
