@@ -76,30 +76,51 @@ def extract_coin_from_headline(headline: str):
     return None, None
 
 
-def get_price_change(coingecko_id: str):
-    """Get live 1h/24h/7d % change from CoinGecko (free, no key)."""
-    try:
-        url = (
-            f"https://api.coingecko.com/api/v3/coins/markets"
-            f"?vs_currency=usd&ids={coingecko_id}"
-            f"&price_change_percentage=1h,24h,7d"
-        )
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        if not data:
-            return None
-        d = data[0]
-        return {
-            "symbol": d["symbol"].upper(),
-            "price": d["current_price"],
-            "change_1h": d.get("price_change_percentage_1h_in_currency", 0) or 0,
-            "change_24h": d.get("price_change_percentage_24h_in_currency", 0) or 0,
-            "change_7d": d.get("price_change_percentage_7d_in_currency", 0) or 0,
-        }
-    except Exception as e:
-        logger.error(f"CoinGecko fetch failed: {e}")
-        return None
+def get_price_change(coingecko_id: str, max_retries: int = 3):
+    """Get live 1h/24h/7d % change from CoinGecko, with retry-with-backoff
+    and a proper User-Agent (CoinGecko silently blocks bare requests calls
+    from shared/cloud IPs like Render's)."""
+    import time
+
+    coingecko_key = os.getenv("COINGECKO_API_KEY", "")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; CipherVaultBot/1.0)",
+        "Accept": "application/json",
+    }
+    if coingecko_key:
+        headers["x-cg-demo-api-key"] = coingecko_key
+
+    url = (
+        f"https://api.coingecko.com/api/v3/coins/markets"
+        f"?vs_currency=usd&ids={coingecko_id}"
+        f"&price_change_percentage=1h,24h,7d"
+    )
+
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, timeout=15, headers=headers)
+            if resp.status_code == 429:
+                wait = 2 ** attempt
+                logger.warning(f"CoinGecko rate-limited, retrying in {wait}s (attempt {attempt+1}/{max_retries})")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if not data:
+                return None
+            d = data[0]
+            return {
+                "symbol": d["symbol"].upper(),
+                "price": d["current_price"],
+                "change_1h": d.get("price_change_percentage_1h_in_currency", 0) or 0,
+                "change_24h": d.get("price_change_percentage_24h_in_currency", 0) or 0,
+                "change_7d": d.get("price_change_percentage_7d_in_currency", 0) or 0,
+            }
+        except Exception as e:
+            logger.error(f"CoinGecko fetch failed (attempt {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+    return None
 
 
 def get_top_news_with_impact():
