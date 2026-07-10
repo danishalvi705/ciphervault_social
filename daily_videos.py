@@ -774,3 +774,100 @@ async def run_daily_videos_v2():
         except Exception as e:
             logger.error(f"[Sequential] {name} failed: {e}")
         await asyncio.sleep(COOLDOWN_SECONDS)
+
+# ---------------------------------------------------------------------------
+# 5. Educational Video (topic bank rotation)
+# ---------------------------------------------------------------------------
+async def generate_educational_video():
+    import json
+    logger.info("[Educational] Generating video...")
+
+    with open("topics.json") as f:
+        topics = json.load(f)
+    with open("used_topics.json") as f:
+        used_ids = json.load(f)
+
+    remaining = [t for t in topics if t["id"] not in used_ids]
+    if not remaining:
+        used_ids = []
+        remaining = topics
+
+    topic = remaining[0]
+    used_ids.append(topic["id"])
+    with open("used_topics.json", "w") as f:
+        json.dump(used_ids, f)
+
+    today = datetime.now(timezone.utc).date()
+    html = f"""<!DOCTYPE html><html><head><style>{BASE_CSS}</style></head><body>
+    <div class="card">
+        <div class="header">{topic['header']}</div>
+        <div class="title">{topic['title']}</div>
+        <div class="divider"></div>
+        <div style="font-size:30px;line-height:1.6;color:#ffffff;margin:20px 0">
+            {topic['script']}
+        </div>
+        <div class="footer-note">CipherVault Learn | Not financial advice.</div>
+    </div>
+    </body></html>"""
+
+    img = f"/tmp/edu_{topic['id']}_{today}.png"
+    vid = f"/tmp/edu_{topic['id']}_{today}.mp4"
+    await html_to_image(html, img)
+    image_to_video(img, vid, duration=15)
+
+    caption = f"📚 <b>{topic['title']}</b>\n\n{topic['script']}\n\n{topic['cta']}\n\n#CipherVault #CryptoEducation #Learn"
+    await send_telegram_video(vid, caption)
+    logger.info(f"[Educational] Video sent — topic: {topic['title']}")
+    return vid
+
+
+# ---------------------------------------------------------------------------
+# 6. News Impact Video (fully live, no static fallback)
+# ---------------------------------------------------------------------------
+async def generate_news_impact_video():
+    from news_fetch import get_top_news_with_impact
+    logger.info("[News] Generating video...")
+
+    story = get_top_news_with_impact()
+    if not story:
+        logger.warning("[News] No usable live story found today — skipping this run.")
+        return None
+
+    change_24h = round(story["change_24h"], 2)
+    direction = "🟢" if change_24h >= 0 else "🔴"
+    color = "#00ff88" if change_24h >= 0 else "#ff4444"
+    sign = "+" if change_24h >= 0 else ""
+
+    today = datetime.now(timezone.utc).date()
+    html = f"""<!DOCTYPE html><html><head><style>{BASE_CSS}</style></head><body>
+    <div class="card">
+        <div class="header">📰 CRYPTO NEWS IMPACT</div>
+        <div class="title" style="font-size:36px">{story['headline']}</div>
+        <div class="divider"></div>
+        <div class="row">
+            <span>Coin</span><span class="yellow">{story['symbol']}</span>
+        </div>
+        <div class="row">
+            <span>24h Move</span><span style="color:{color};font-weight:bold">{direction} {sign}{change_24h}%</span>
+        </div>
+        <div class="row">
+            <span>Price</span><span class="gray">${story['price']:,}</span>
+        </div>
+        <div class="footer-note">Source: {story['source']} | Not financial advice.</div>
+    </div>
+    </body></html>"""
+
+    img = f"/tmp/news_{today}.png"
+    vid = f"/tmp/news_{today}.mp4"
+    await html_to_image(html, img)
+    image_to_video(img, vid, duration=12)
+
+    caption = (
+        f"📰 <b>{story['headline']}</b>\n\n"
+        f"{story['symbol']} {direction} {sign}{change_24h}% (24h)\n"
+        f"Price: ${story['price']:,}\n\n"
+        f"Source: {story['source']}\n\n#CipherVault #CryptoNews #Bitcoin"
+    )
+    await send_telegram_video(vid, caption)
+    logger.info(f"[News] Video sent — {story['headline']}")
+    return vid

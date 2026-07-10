@@ -7,7 +7,6 @@ from datetime import datetime
 import json
 import subprocess
 from pathlib import Path
-import random
 
 app = FastAPI()
 
@@ -16,6 +15,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 CIPHERVAULT_API = os.getenv("CIPHERVAULT_API", "http://168.144.131.132:8000")
 BACKGROUNDS_DIR = Path("./backgrounds")
 
+# Ensure backgrounds dir exists
 BACKGROUNDS_DIR.mkdir(exist_ok=True)
 
 # ============================================================================
@@ -26,7 +26,7 @@ async def query_ciphervault_api(endpoint: str):
     """Query DigitalOcean CipherVault API"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{CIPHERVAULT_API}{endpoint}", timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with session.get(f"{CIPHERVAULT_API}{endpoint}") as resp:
                 return await resp.json()
     except Exception as e:
         print(f"API Error: {e}")
@@ -47,64 +47,59 @@ async def post_to_telegram(video_path: str, caption: str):
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, data=data) as resp:
                     result = await resp.json()
-                    print(f"✅ Telegram posted: {result.get('ok')}")
+                    print(f"Telegram response: {result}")
                     return result
     except Exception as e:
-        print(f"❌ Telegram error: {e}")
+        print(f"Telegram error: {e}")
         return None
 
 
 def render_html_to_screenshot(html: str, output_path: str):
     """Render HTML to PNG using Playwright"""
-    from playwright.sync_api import sync_playwright
+    from playwright.async_api import async_playwright
     
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            page = browser.new_page(viewport={"width": 1080, "height": 1920})
-            page.set_content(html)
-            page.screenshot(path=output_path)
-            browser.close()
-        print(f"✅ Screenshot: {output_path}")
-    except Exception as e:
-        print(f"❌ Screenshot error: {e}")
-        raise
+    async def _render():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            page = await browser.new_page(viewport={"width": 1080, "height": 1920})
+            await page.set_content(html)
+            await page.screenshot(path=output_path)
+            await browser.close()
+    
+    asyncio.run(_render())
 
 
 def overlay_on_background(screenshot_path: str, output_video: str):
     """Overlay screenshot on random background video using FFmpeg"""
-    try:
-        bg_files = list(BACKGROUNDS_DIR.glob("bg*.mp4"))
-        if not bg_files:
-            raise Exception("No background videos found in ./backgrounds/")
-        
-        bg_video = random.choice(bg_files)
-        print(f"Using background: {bg_video.name}")
-        
-        cmd = [
-            "ffmpeg",
-            "-i", str(bg_video),
-            "-i", screenshot_path,
-            "-filter_complex",
-            "[0]scale=1080:1920[bg];[bg][1]overlay=(W-w)/2:(H-h)/2:shortest=1[v]",
-            "-map", "[v]",
-            "-map", "0:a?",
-            "-c:v", "libx264",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-y",
-            output_video
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if result.returncode != 0:
-            raise Exception(f"FFmpeg error: {result.stderr}")
-        
-        print(f"✅ Video: {output_video}")
-        return output_video
-    except Exception as e:
-        print(f"❌ FFmpeg error: {e}")
-        raise
+    import random
+    
+    bg_files = list(BACKGROUNDS_DIR.glob("bg*.mp4"))
+    if not bg_files:
+        raise Exception("No background videos found")
+    
+    bg_video = random.choice(bg_files)
+    
+    # FFmpeg command to overlay centered
+    cmd = [
+        "ffmpeg",
+        "-i", str(bg_video),
+        "-i", screenshot_path,
+        "-filter_complex",
+        "[0]scale=1080:1920[bg];[bg][1]overlay=(W-w)/2:(H-h)/2:shortest=1[v]",
+        "-map", "[v]",
+        "-map", "0:a?",
+        "-c:v", "libx264",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-y",
+        output_video
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"FFmpeg error: {result.stderr}")
+    
+    return output_video
 
 
 # ============================================================================
@@ -116,13 +111,15 @@ async def generate_top_gainer():
     """Generate Top Gainer video"""
     try:
         data = await query_ciphervault_api("/api/v1/top-gainer")
-        if not data or "error" in data:
-            return {"error": data.get("error", "API error")}
+        
+        if "error" in data:
+            raise HTTPException(status_code=404, detail=data["error"])
         
         symbol = data['symbol']
         percent_gain = data['percent_gain']
         signal_type = data['signal_type'].replace('_', ' ').title()
         
+        # HTML template
         html = f"""
         <html>
         <head>
@@ -146,12 +143,15 @@ async def generate_top_gainer():
         </html>
         """
         
+        # Generate screenshot
         screenshot = "/tmp/top_gainer.png"
         render_html_to_screenshot(html, screenshot)
         
+        # Overlay and create video
         output_video = f"/tmp/top_gainer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
         
+        # Post to Telegram
         caption = f"🔥 Today's Top Mover!\n\n{symbol}\n+{percent_gain}% 📈\n\n{signal_type}\n\n#CipherVault #Trading"
         await post_to_telegram(output_video, caption)
         
@@ -165,12 +165,14 @@ async def generate_fear_greed():
     """Generate Fear & Greed video"""
     try:
         data = await query_ciphervault_api("/api/v1/fear-greed")
-        if not data or "error" in data:
-            return {"error": data.get("error", "API error")}
+        
+        if "error" in data:
+            raise HTTPException(status_code=404, detail=data["error"])
         
         value = data['value']
         sentiment = data['sentiment'].replace('_', ' ').title()
         
+        # Color by sentiment
         if value < 25:
             color = "#ff0000"
             emoji = "😱"
@@ -231,8 +233,9 @@ async def generate_btc_dominance():
     """Generate BTC Dominance video"""
     try:
         data = await query_ciphervault_api("/api/v1/btc-dominance")
-        if not data or "error" in data:
-            return {"error": data.get("error", "API error")}
+        
+        if "error" in data:
+            raise HTTPException(status_code=404, detail=data["error"])
         
         dominance = data['dominance']
         verdict = data['verdict']
@@ -258,7 +261,7 @@ async def generate_btc_dominance():
                 <div class="dominance">BTC: {dominance}%</div>
                 <div class="verdict">{verdict}</div>
                 <div class="message">"{message}"</div>
-                <div class="regime">BTC Trend: {regime}</div>
+                <div class="regime">BTC Trend: {regime} ↑</div>
             </div>
         </body>
         </html>
@@ -283,8 +286,9 @@ async def generate_signal_reveal():
     """Generate Signal Reveal video"""
     try:
         data = await query_ciphervault_api("/api/v1/signal-reveal")
-        if not data or "error" in data:
-            return {"error": data.get("error", "API error")}
+        
+        if "error" in data:
+            raise HTTPException(status_code=404, detail=data["error"])
         
         symbol = data['symbol']
         entry = data['entry_price']
@@ -312,7 +316,7 @@ async def generate_signal_reveal():
         <body>
             <div class="container">
                 <div class="checkmark">✅</div>
-                <div class="title">WE CALLED THIS 3+ DAYS AGO</div>
+                <div class="title">WE CALLED THIS 3 DAYS AGO</div>
                 <div class="symbol">{symbol}</div>
                 <div class="prices">Entry: ${entry:.4f}</div>
                 <div class="price-hit">Target Hit: ${tp:.4f} ✅</div>
@@ -343,20 +347,19 @@ async def generate_weekly_leaderboard():
     """Generate Weekly Leaderboard video"""
     try:
         data = await query_ciphervault_api("/api/v1/weekly-leaderboard")
-        if not data or "error" in data:
-            return {"error": data.get("error", "API error")}
         
-        signals = data.get('signals', [])
-        total_gain = data.get('total_gain', 0)
+        if "error" in data:
+            raise HTTPException(status_code=404, detail=data["error"])
         
+        signals = data['signals']
+        total_gain = data['total_gain']
+        
+        # Build leaderboard text
         leaderboard_text = ""
         medals = ["🥇", "🥈", "🥉"]
         for i, sig in enumerate(signals):
             medal = medals[i] if i < 3 else f"{i+1}."
             leaderboard_text += f"\n{medal} {sig['symbol']}  +{sig['percent_gain']}%"
-        
-        if not leaderboard_text:
-            leaderboard_text = "\nNo winners this week yet"
         
         html = f"""
         <html>
@@ -393,56 +396,6 @@ async def generate_weekly_leaderboard():
     except Exception as e:
         return {"error": str(e)}
 
-
-
-# ============================================================================
-# TEMPORARY TEST ENDPOINTS — remove after verifying
-# ============================================================================
-from daily_videos import generate_educational_video, generate_news_impact_video
-
-@app.post("/test-educational")
-async def test_educational():
-    try:
-        result = await generate_educational_video()
-        return {"status": "success", "video": result}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/test-news")
-async def test_news():
-    try:
-        result = await generate_news_impact_video()
-        return {"status": "success", "video": result}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@app.get("/test-news-debug")
-async def test_news_debug():
-    from news_fetch import fetch_coindesk_headlines, fetch_cointelegraph_headlines, fetch_decrypt_headlines
-    return {
-        "coindesk_count": len(fetch_coindesk_headlines()),
-        "cointelegraph_count": len(fetch_cointelegraph_headlines()),
-        "decrypt_count": len(fetch_decrypt_headlines()),
-    }
-
-
-@app.get("/test-news-headlines")
-async def test_news_headlines():
-    from news_fetch import fetch_coindesk_headlines, fetch_cointelegraph_headlines, fetch_decrypt_headlines, extract_coin_from_headline
-    all_headlines = fetch_coindesk_headlines() + fetch_cointelegraph_headlines() + fetch_decrypt_headlines()
-    results = []
-    for h in all_headlines:
-        coin_id, symbol_hit = extract_coin_from_headline(h["title"])
-        results.append({"title": h["title"], "source": h["source"], "matched_coin": symbol_hit})
-    return {"headlines": results}
-
-
-@app.get("/test-price-debug")
-async def test_price_debug():
-    from news_fetch import get_price_change
-    result = get_price_change("bitcoin")
-    return {"price_data": result}
 
 @app.get("/health")
 async def health():
