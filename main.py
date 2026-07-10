@@ -394,6 +394,28 @@ async def generate_weekly_leaderboard():
         return {"error": str(e)}
 
 
+
+# ============================================================================
+# TEMPORARY TEST ENDPOINTS — remove after verifying
+# ============================================================================
+from daily_videos import generate_educational_video, generate_news_impact_video
+
+@app.post("/test-educational")
+async def test_educational():
+    try:
+        result = await generate_educational_video()
+        return {"status": "success", "video": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/test-news")
+async def test_news():
+    try:
+        result = await generate_news_impact_video()
+        return {"status": "success", "video": result}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
