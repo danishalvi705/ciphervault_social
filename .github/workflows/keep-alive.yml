@@ -10,5 +10,5 @@ jobs:
     steps:
       - name: Ping Render backend
         run: |
-          curl --fail https://ciphervault-social.onrender.com/health
+          curl --fail https://ciphervault-social-2.onrender.com/health
           echo "Pinged at $(date)"
