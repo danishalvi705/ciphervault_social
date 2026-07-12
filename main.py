@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 import aiohttp
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import asyncio
 from datetime import datetime
@@ -64,23 +66,23 @@ async def post_to_telegram(video_path: str, caption: str):
         return None
 
 
-def render_html_to_screenshot(html: str, output_path: str):
+async def render_html_to_screenshot(html: str, output_path: str):
     """Render HTML to PNG using Playwright"""
-    from playwright.sync_api import sync_playwright
+    from playwright.async_api import async_playwright
     
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(args=[
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(args=[
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
                 "--no-sandbox",
                 "--single-process",
                 "--disable-extensions",
             ])
-            page = browser.new_page(viewport={"width": 1080, "height": 1920})
-            page.set_content(html)
-            page.screenshot(path=output_path)
-            browser.close()
+            page = await browser.new_page(viewport={"width": 1080, "height": 1920})
+            await page.set_content(html)
+            await page.screenshot(path=output_path, omit_background=True)
+            await browser.close()
         print(f"✅ Screenshot: {output_path}")
     except Exception as e:
         print(f"❌ Screenshot error: {e}")
@@ -97,17 +99,26 @@ def overlay_on_background(screenshot_path: str, output_video: str):
         bg_video = random.choice(bg_files)
         print(f"Using background: {bg_video.name}")
         
+        filter_complex = (
+            "[1]format=rgba,"
+            "fade=t=in:st=0:d=0.8:alpha=1,"
+            "zoompan=z='1+0.025*sin(2*3.14159*in/45)':d=1:s=1080x1920:fps=25[fg];"
+            "[0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[bg];"
+            "[bg][fg]overlay=x=(W-w)/2:y=(H-h)/2[v]"
+        )
         cmd = [
             "ffmpeg",
             "-i", str(bg_video),
+            "-loop", "1",
             "-i", screenshot_path,
             "-filter_complex",
-            "[0]scale=1080:1920[bg];[bg][1]overlay=(W-w)/2:(H-h)/2:shortest=1[v]",
+            filter_complex,
             "-map", "[v]",
             "-map", "0:a?",
             "-c:v", "libx264",
             "-crf", "23",
             "-c:a", "aac",
+            "-t", "8",
             "-y",
             output_video
         ]
@@ -144,7 +155,8 @@ async def generate_top_gainer():
         <html>
         <head>
             <style>
-                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+                body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
                 .title {{ font-size: 48px; color: #ff6b35; margin-bottom: 40px; font-weight: bold; }}
                 .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
@@ -159,17 +171,18 @@ async def generate_top_gainer():
                 <div class="percent">📈 +{percent_gain}%</div>
                 <div class="type">{signal_type}</div>
             </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
         """
         
         screenshot = "/tmp/top_gainer.png"
-        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
+        await render_html_to_screenshot(html, screenshot)
         
         output_video = f"/tmp/top_gainer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
         
-        caption = f"🔥 Today's Top Mover!\n\n{symbol}\n+{percent_gain}% 📈\n\n{signal_type}\n\n#CipherVault #Trading"
+        caption = f"🔥 Today's Top Mover!\n\n{symbol}\n+{percent_gain}% 📈\n\n{signal_type}\n\n#CipherVault #Trading\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
         
         return {"status": "success", "video": output_video}
@@ -209,7 +222,8 @@ async def generate_fear_greed():
         <html>
         <head>
             <style>
-                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+                body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
                 .title {{ font-size: 48px; color: #ffffff; margin-bottom: 40px; }}
                 .gauge {{ font-size: 120px; color: {color}; font-weight: bold; margin: 30px 0; }}
@@ -226,17 +240,18 @@ async def generate_fear_greed():
                 <div class="sentiment">{sentiment}</div>
                 <div class="message">Best time to take profits?</div>
             </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
         """
         
         screenshot = "/tmp/fear_greed.png"
-        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
+        await render_html_to_screenshot(html, screenshot)
         
         output_video = f"/tmp/fear_greed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
         
-        caption = f"📊 Market Sentiment: {sentiment}\n\nFear & Greed Index: {value}\n\n{emoji}\n\n#CipherVault #Crypto"
+        caption = f"📊 Market Sentiment: {sentiment}\n\nFear & Greed Index: {value}\n\n{emoji}\n\n#CipherVault #Crypto\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
         
         return {"status": "success", "video": output_video}
@@ -262,7 +277,8 @@ async def generate_btc_dominance():
         <html>
         <head>
             <style>
-                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+                body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
                 .title {{ font-size: 48px; color: #ffffff; margin-bottom: 40px; font-weight: bold; }}
                 .dominance {{ font-size: 72px; color: #ffaa00; font-weight: bold; margin: 20px 0; }}
@@ -279,17 +295,18 @@ async def generate_btc_dominance():
                 <div class="message">"{message}"</div>
                 <div class="regime">BTC Trend: {regime}</div>
             </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
         """
         
         screenshot = "/tmp/btc_dominance.png"
-        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
+        await render_html_to_screenshot(html, screenshot)
         
         output_video = f"/tmp/btc_dominance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
         
-        caption = f"📊 BTC Dominance: {dominance}%\n\n{verdict}\n\n{message}\n\nTrend: {regime}\n\n#CipherVault #Bitcoin"
+        caption = f"📊 BTC Dominance: {dominance}%\n\n{verdict}\n\n{message}\n\nTrend: {regime}\n\n#CipherVault #Bitcoin\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
         
         return {"status": "success", "video": output_video}
@@ -317,7 +334,8 @@ async def generate_signal_reveal():
         <html>
         <head>
             <style>
-                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+                body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
                 .checkmark {{ font-size: 80px; color: #00ff41; margin-bottom: 20px; }}
                 .title {{ font-size: 44px; color: #00ff41; margin-bottom: 30px; font-weight: bold; }}
@@ -340,17 +358,18 @@ async def generate_signal_reveal():
                 <div class="days">{days} Days Held</div>
                 <div class="type">{signal_type}</div>
             </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
         """
         
         screenshot = "/tmp/signal_reveal.png"
-        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
+        await render_html_to_screenshot(html, screenshot)
         
         output_video = f"/tmp/signal_reveal_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
         
-        caption = f"✅ Signal Reveal!\n\n{symbol}\nEntry: ${entry:.4f}\nTarget Hit: ${tp:.4f}\n\n+{gain}% Gain 🎯\n\n{days} Days Held\n\n#{signal_type.replace(' ', '')}\n#CipherVault"
+        caption = f"✅ Signal Reveal!\n\n{symbol}\nEntry: ${entry:.4f}\nTarget Hit: ${tp:.4f}\n\n+{gain}% Gain 🎯\n\n{days} Days Held\n\n#{signal_type.replace(' ', '')}\n#CipherVault\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
         
         return {"status": "success", "video": output_video}
@@ -383,7 +402,8 @@ async def generate_weekly_leaderboard():
         <html>
         <head>
             <style>
-                body {{ margin: 0; padding: 60px; background: #0a0e27; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+                .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+                body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
                 .title {{ font-size: 48px; color: #ffaa00; margin-bottom: 40px; font-weight: bold; }}
                 .leaderboard {{ font-size: 40px; color: #ffffff; margin: 30px 0; line-height: 1.8; font-family: monospace; }}
@@ -397,17 +417,18 @@ async def generate_weekly_leaderboard():
                 <div class="leaderboard">{leaderboard_text}</div>
                 <div class="total">Total: +{total_gain}% 🎯</div>
             </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
         """
         
         screenshot = "/tmp/weekly_leaderboard.png"
-        await asyncio.to_thread(render_html_to_screenshot, html, screenshot)
+        await render_html_to_screenshot(html, screenshot)
         
         output_video = f"/tmp/weekly_leaderboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         overlay_on_background(screenshot, output_video)
         
-        caption = f"🏆 This Week's Top 3 Signals\n{leaderboard_text}\n\nTotal Gains: +{total_gain}%\n\n#CipherVault #Trading"
+        caption = f"🏆 This Week's Top 3 Signals\n{leaderboard_text}\n\nTotal Gains: +{total_gain}%\n\n#CipherVault #Trading\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
         
         return {"status": "success", "video": output_video}
@@ -473,3 +494,13 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.post("/generate-educational")
+@with_video_lock
+async def generate_educational():
+    """Generate Educational video"""
+    try:
+        result = await generate_educational_video()
+        return {"status": "success", "video": result}
+    except Exception as e:
+        return {"error": str(e)}
