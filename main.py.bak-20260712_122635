@@ -1,4 +1,3 @@
-import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 import aiohttp
@@ -102,25 +101,22 @@ def overlay_on_background(screenshot_path: str, output_video: str):
         bg_video = random.choice(bg_files)
         print(f"Using background: {bg_video.name}")
         
-        music_dir = Path("music")
-        music_files = list(music_dir.glob("*.mp3")) if music_dir.exists() else []
-        music_track = random.choice(music_files) if music_files else None
-
         filter_complex = (
             "[1]format=rgba,"
             "fade=t=in:st=0:d=0.8:alpha=1,"
-            "scale=1080:1920,fps=25[fg];"
+            "zoompan=z='1+0.025*sin(2*3.14159*in/45)':d=1:s=1080x1920:fps=25[fg];"
             "[0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[bg];"
             "[bg][fg]overlay=x=(W-w)/2:y=(H-h)/2[v]"
         )
-        cmd = ["ffmpeg", "-i", str(bg_video), "-loop", "1", "-i", screenshot_path]
-        if music_track:
-            filter_complex += ";[2:a]volume=0.3,aloop=loop=-1:size=2e9[aout]"
-            cmd += ["-i", str(music_track)]
-            cmd += ["-filter_complex", filter_complex, "-map", "[v]", "-map", "[aout]"]
-        else:
-            cmd += ["-filter_complex", filter_complex, "-map", "[v]", "-map", "0:a?"]
-        cmd += [
+        cmd = [
+            "ffmpeg",
+            "-i", str(bg_video),
+            "-loop", "1",
+            "-i", screenshot_path,
+            "-filter_complex",
+            filter_complex,
+            "-map", "[v]",
+            "-map", "0:a?",
             "-c:v", "libx264",
             "-crf", "23",
             "-c:a", "aac",
@@ -164,7 +160,6 @@ async def generate_top_gainer():
                 .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
                 body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
                 .title {{ font-size: 48px; color: #ff6b35; margin-bottom: 40px; font-weight: bold; }}
                 .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
                 .percent {{ font-size: 80px; color: #00ff41; font-weight: bold; margin: 30px 0; }}
@@ -173,12 +168,11 @@ async def generate_top_gainer():
         </head>
         <body>
             <div class="container">
-                <div class="glass-card">
                 <div class="title">🔥 TODAY'S TOP MOVER 🔥</div>
                 <div class="symbol">{symbol}</div>
                 <div class="percent">📈 +{percent_gain}%</div>
                 <div class="type">{signal_type}</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
@@ -192,7 +186,6 @@ async def generate_top_gainer():
         
         caption = f"🔥 Today's Top Mover!\n\n{symbol}\n+{percent_gain}% 📈\n\n{signal_type}\n\n#CipherVault #Trading\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         
         return {"status": "success", "video": output_video}
     except Exception as e:
@@ -234,7 +227,6 @@ async def generate_fear_greed():
                 .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
                 body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
                 .title {{ font-size: 48px; color: #ffffff; margin-bottom: 40px; }}
                 .gauge {{ font-size: 120px; color: {color}; font-weight: bold; margin: 30px 0; }}
                 .sentiment {{ font-size: 44px; color: {color}; margin: 20px 0; font-weight: bold; }}
@@ -244,13 +236,12 @@ async def generate_fear_greed():
         </head>
         <body>
             <div class="container">
-                <div class="glass-card">
                 <div class="title">📊 MARKET SENTIMENT TODAY 📊</div>
                 <div class="emoji">{emoji}</div>
                 <div class="gauge">{value}</div>
                 <div class="sentiment">{sentiment}</div>
                 <div class="message">Best time to take profits?</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
@@ -264,7 +255,6 @@ async def generate_fear_greed():
         
         caption = f"📊 Market Sentiment: {sentiment}\n\nFear & Greed Index: {value}\n\n{emoji}\n\n#CipherVault #Crypto\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         
         return {"status": "success", "video": output_video}
     except Exception as e:
@@ -292,7 +282,6 @@ async def generate_btc_dominance():
                 .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
                 body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
                 .title {{ font-size: 48px; color: #ffffff; margin-bottom: 40px; font-weight: bold; }}
                 .dominance {{ font-size: 72px; color: #ffaa00; font-weight: bold; margin: 20px 0; }}
                 .verdict {{ font-size: 52px; color: #ffffff; margin: 30px 0; font-weight: bold; }}
@@ -302,13 +291,12 @@ async def generate_btc_dominance():
         </head>
         <body>
             <div class="container">
-                <div class="glass-card">
                 <div class="title">BTC DOMINANCE VERDICT</div>
                 <div class="dominance">BTC: {dominance}%</div>
                 <div class="verdict">{verdict}</div>
                 <div class="message">"{message}"</div>
                 <div class="regime">BTC Trend: {regime}</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
@@ -322,7 +310,6 @@ async def generate_btc_dominance():
         
         caption = f"📊 BTC Dominance: {dominance}%\n\n{verdict}\n\n{message}\n\nTrend: {regime}\n\n#CipherVault #Bitcoin\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         
         return {"status": "success", "video": output_video}
     except Exception as e:
@@ -352,7 +339,6 @@ async def generate_signal_reveal():
                 .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
                 body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
                 .checkmark {{ font-size: 80px; color: #00ff41; margin-bottom: 20px; }}
                 .title {{ font-size: 44px; color: #00ff41; margin-bottom: 30px; font-weight: bold; }}
                 .symbol {{ font-size: 56px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
@@ -365,7 +351,6 @@ async def generate_signal_reveal():
         </head>
         <body>
             <div class="container">
-                <div class="glass-card">
                 <div class="checkmark">✅</div>
                 <div class="title">WE CALLED THIS 3+ DAYS AGO</div>
                 <div class="symbol">{symbol}</div>
@@ -374,7 +359,7 @@ async def generate_signal_reveal():
                 <div class="gain">+{gain}%</div>
                 <div class="days">{days} Days Held</div>
                 <div class="type">{signal_type}</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
@@ -388,7 +373,6 @@ async def generate_signal_reveal():
         
         caption = f"✅ Signal Reveal!\n\n{symbol}\nEntry: ${entry:.4f}\nTarget Hit: ${tp:.4f}\n\n+{gain}% Gain 🎯\n\n{days} Days Held\n\n#{signal_type.replace(' ', '')}\n#CipherVault\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         
         return {"status": "success", "video": output_video}
     except Exception as e:
@@ -423,7 +407,6 @@ async def generate_weekly_leaderboard():
                 .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
                 body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
                 .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
                 .title {{ font-size: 48px; color: #ffaa00; margin-bottom: 40px; font-weight: bold; }}
                 .leaderboard {{ font-size: 40px; color: #ffffff; margin: 30px 0; line-height: 1.8; font-family: monospace; }}
                 .medal {{ font-size: 60px; }}
@@ -432,11 +415,10 @@ async def generate_weekly_leaderboard():
         </head>
         <body>
             <div class="container">
-                <div class="glass-card">
                 <div class="title">THIS WEEK'S TOP 3 SIGNALS 🏆</div>
                 <div class="leaderboard">{leaderboard_text}</div>
                 <div class="total">Total: +{total_gain}% 🎯</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body>
         </html>
@@ -450,7 +432,6 @@ async def generate_weekly_leaderboard():
         
         caption = f"🏆 This Week's Top 3 Signals\n{leaderboard_text}\n\nTotal Gains: +{total_gain}%\n\n#CipherVault #Trading\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         
         return {"status": "success", "video": output_video}
     except Exception as e:
@@ -545,7 +526,6 @@ async def generate_liquidation_alert(payload: dict):
             .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
             body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
             .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
             .title {{ font-size: 48px; color: #ff2b2b; margin-bottom: 40px; font-weight: bold; }}
             .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
             .usd {{ font-size: 76px; color: #ff2b2b; font-weight: bold; margin: 30px 0; }}
@@ -553,13 +533,12 @@ async def generate_liquidation_alert(payload: dict):
             .price {{ font-size: 30px; color: #888; margin-top: 20px; }}
         </style></head><body>
             <div class="container">
-                <div class="glass-card">
                 <div class="title">💥 LIQUIDATION ALERT 💥</div>
                 <div class="symbol">{symbol}</div>
                 <div class="usd">${usd_value:,.0f}</div>
                 <div class="direction">{direction}</div>
                 <div class="price">@ ${price:,.4f}</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body></html>
         """
@@ -569,7 +548,6 @@ async def generate_liquidation_alert(payload: dict):
         overlay_on_background(screenshot, output_video)
         caption = f"💥 LIQUIDATION ALERT\n\n{symbol}\n${usd_value:,.0f} {direction}\n\n@ ${price:,.4f}\n\n#CipherVault #Liquidation\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         return {"status": "success", "video": output_video}
     except Exception as e:
         print(f"❌  liquidation video error: {e}")
@@ -585,7 +563,6 @@ async def generate_whale_movement(payload: dict):
             .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
             body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
             .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
             .title {{ font-size: 48px; color: #29a3ff; margin-bottom: 40px; font-weight: bold; }}
             .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
             .usd {{ font-size: 76px; color: #29a3ff; font-weight: bold; margin: 30px 0; }}
@@ -593,13 +570,12 @@ async def generate_whale_movement(payload: dict):
             .price {{ font-size: 30px; color: #888; margin-top: 20px; }}
         </style></head><body>
             <div class="container">
-                <div class="glass-card">
                 <div class="title">🐋 WHALE MOVEMENT 🐋</div>
                 <div class="symbol">{symbol}</div>
                 <div class="usd">${usd_value:,.0f}</div>
                 <div class="side">{side}</div>
                 <div class="price">@ ${price:,.4f}</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body></html>
         """
@@ -609,7 +585,6 @@ async def generate_whale_movement(payload: dict):
         overlay_on_background(screenshot, output_video)
         caption = f"🐋 WHALE MOVEMENT\n\n{symbol}\n${usd_value:,.0f} {side.upper()}\n\n@ ${price:,.4f}\n\n#CipherVault #Whale\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         return {"status": "success", "video": output_video}
     except Exception as e:
         print(f"❌  whale video error: {e}")
@@ -627,19 +602,17 @@ async def generate_volatility_alert(payload: dict):
             .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
             body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
             .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
             .title {{ font-size: 46px; color: #ffaa00; margin-bottom: 40px; font-weight: bold; }}
             .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
             .pct {{ font-size: 84px; color: {color}; font-weight: bold; margin: 30px 0; }}
             .price {{ font-size: 34px; color: #999; margin-top: 20px; }}
         </style></head><body>
             <div class="container">
-                <div class="glass-card">
                 <div class="title">⚡ BREAKING VOLATILITY ⚡</div>
                 <div class="symbol">{symbol}</div>
                 <div class="pct">{arrow} {sign}{pct_change}%</div>
                 <div class="price">Now: ${price:,.4f}</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body></html>
         """
@@ -649,7 +622,6 @@ async def generate_volatility_alert(payload: dict):
         overlay_on_background(screenshot, output_video)
         caption = f"⚡ BREAKING VOLATILITY\n\n{symbol}\n{arrow} {sign}{pct_change}%\n\nNow: ${price:,.4f}\n\n#CipherVault #Volatility\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         return {"status": "success", "video": output_video}
     except Exception as e:
         print(f"❌  volatility video error: {e}")
@@ -664,17 +636,15 @@ async def generate_new_listing(payload: dict):
             .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
             body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
             .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
             .title {{ font-size: 48px; color: #00ff41; margin-bottom: 40px; font-weight: bold; }}
             .symbol {{ font-size: 68px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
             .exchange {{ font-size: 40px; color: #888; margin: 20px 0; text-transform: uppercase; }}
         </style></head><body>
             <div class="container">
-                <div class="glass-card">
                 <div class="title">🆕 NEW LISTING 🆕</div>
                 <div class="symbol">{symbol}</div>
                 <div class="exchange">Now live on {exchange}</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body></html>
         """
@@ -684,7 +654,6 @@ async def generate_new_listing(payload: dict):
         overlay_on_background(screenshot, output_video)
         caption = f"🆕 NEW LISTING\n\n{symbol} is now live on {exchange.upper()}\n\n#CipherVault #NewListing\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         return {"status": "success", "video": output_video}
     except Exception as e:
         print(f"❌  new listing video error: {e}")
@@ -700,7 +669,6 @@ async def generate_volume_spike(payload: dict):
             .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
             body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
             .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
             .title {{ font-size: 46px; color: #b829ff; margin-bottom: 40px; font-weight: bold; }}
             .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
             .mult {{ font-size: 80px; color: #b829ff; font-weight: bold; margin: 30px 0; }}
@@ -708,13 +676,12 @@ async def generate_volume_spike(payload: dict):
             .exchange {{ font-size: 28px; color: #666; margin-top: 10px; text-transform: uppercase; }}
         </style></head><body>
             <div class="container">
-                <div class="glass-card">
                 <div class="title">📊 VOLUME SPIKE 📊</div>
                 <div class="symbol">{symbol}</div>
                 <div class="mult">{multiplier}x</div>
                 <div class="vol">24h Volume: ${volume:,.0f}</div>
                 <div class="exchange">{exchange}</div>
-            </div></div>
+            </div>
             <div class="disclaimer">Not Financial Advice. DYOR.</div>
         </body></html>
         """
@@ -724,7 +691,6 @@ async def generate_volume_spike(payload: dict):
         overlay_on_background(screenshot, output_video)
         caption = f"📊 VOLUME SPIKE\n\n{symbol} ({exchange.upper()})\n{multiplier}x average volume\n\n#CipherVault #VolumeSpike\n\n⚠️ Not Financial Advice. DYOR."
         await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
         return {"status": "success", "video": output_video}
     except Exception as e:
         print(f"❌  volume spike video error: {e}")
@@ -737,66 +703,3 @@ async def start_event_triggers():
     asyncio.create_task(run_volatility_monitor(generate_volatility_alert))
     asyncio.create_task(run_listing_scanner(generate_new_listing, generate_volume_spike))
     print("✅  Event triggers started: liquidation, whale, volatility, listings")
-
-def post_to_social(video_path: str, caption: str):
-    import os
-    zernio_key = os.getenv("ZERNIO_API_KEY")
-    ig_account = os.getenv("ZERNIO_INSTAGRAM_ACCOUNT_ID")
-    yt_account = os.getenv("ZERNIO_YOUTUBE_ACCOUNT_ID")
-
-    if not zernio_key:
-        print("⚠️  Zernio API key not set, skipping social post.")
-        return
-
-    headers = {"Authorization": f"Bearer {zernio_key}"}
-    filename = os.path.basename(video_path)
-
-    presign_resp = requests.post(
-        "https://zernio.com/api/v1/media/presign",
-        headers=headers,
-        json={"filename": filename, "contentType": "video/mp4"},
-        timeout=30,
-    )
-    if not presign_resp.ok:
-        print(f"❌ Zernio presign failed: {presign_resp.text}")
-        return
-    presign_data = presign_resp.json()
-    upload_url = presign_data["uploadUrl"]
-    public_url = presign_data["publicUrl"]
-
-    with open(video_path, "rb") as f:
-        put_resp = requests.put(
-            upload_url,
-            headers={"Content-Type": "video/mp4"},
-            data=f,
-            timeout=120,
-        )
-    if not put_resp.ok:
-        print(f"❌ Zernio upload failed: {put_resp.status_code}")
-        return
-
-    platforms = []
-    if ig_account:
-        platforms.append({"platform": "instagram", "accountId": ig_account})
-    if yt_account:
-        platforms.append({"platform": "youtube", "accountId": yt_account})
-
-    if not platforms:
-        print("⚠️  No Zernio accounts configured, skipping post.")
-        return
-
-    post_resp = requests.post(
-        "https://zernio.com/api/v1/posts",
-        headers=headers,
-        json={
-            "content": caption,
-            "publishNow": True,
-            "mediaItems": [{"url": public_url, "type": "video"}],
-            "platforms": platforms,
-        },
-        timeout=30,
-    )
-    if post_resp.ok:
-        print(f"✅ Posted to social: {post_resp.json().get('post', {}).get('_id')}")
-    else:
-        print(f"❌ Zernio post failed: {post_resp.text}")

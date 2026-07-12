@@ -3,7 +3,7 @@ import asyncio, json, logging, websockets
 logger = logging.getLogger("liquidation_listener")
 OKX_WS = "wss://ws.okx.com:8443/ws/v5/public"
 SUBSCRIBE_MSG = json.dumps({"op": "subscribe", "args": [{"channel": "liquidation-orders", "instType": "SWAP"}]})
-MIN_LIQ_USD = 500_000
+MIN_LIQ_USD = 1_000_000
 
 async def run_liquidation_listener(on_liquidation):
     while True:
