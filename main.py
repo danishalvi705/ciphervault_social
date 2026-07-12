@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path
 import random
 
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 app = FastAPI()
 video_generation_lock = asyncio.Lock()
 
@@ -504,3 +506,200 @@ async def generate_educational():
         return {"status": "success", "video": result}
     except Exception as e:
         return {"error": str(e)}
+
+# ============================================================================
+# EVENT-TRIGGERED VIDEOS (liquidation / whale / volatility / listings)
+# ============================================================================
+from triggers.liquidation_listener import run_liquidation_listener
+from triggers.whale_tracker import run_whale_tracker
+from triggers.volatility_monitor import run_volatility_monitor
+from triggers.listing_scanner import run_listing_scanner
+
+@with_video_lock
+async def generate_liquidation_alert(payload: dict):
+    try:
+        symbol = payload["symbol"]; side = payload["side"]
+        usd_value = payload["usd_value"]; price = payload["price"]
+        direction = "LONGS REKT" if side == "SELL" else "SHORTS REKT"
+        html = f"""
+        <html><head><style>
+            .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+            body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+            .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+            .title {{ font-size: 48px; color: #ff2b2b; margin-bottom: 40px; font-weight: bold; }}
+            .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
+            .usd {{ font-size: 76px; color: #ff2b2b; font-weight: bold; margin: 30px 0; }}
+            .direction {{ font-size: 40px; color: #ffaa00; margin: 20px 0; font-weight: bold; }}
+            .price {{ font-size: 30px; color: #888; margin-top: 20px; }}
+        </style></head><body>
+            <div class="container">
+                <div class="title">💥 LIQUIDATION ALERT 💥</div>
+                <div class="symbol">{symbol}</div>
+                <div class="usd">${usd_value:,.0f}</div>
+                <div class="direction">{direction}</div>
+                <div class="price">@ ${price:,.4f}</div>
+            </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
+        </body></html>
+        """
+        screenshot = "/tmp/liquidation_alert.png"
+        await render_html_to_screenshot(html, screenshot)
+        output_video = f"/tmp/liquidation_alert_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        caption = f"💥 LIQUIDATION ALERT\n\n{symbol}\n${usd_value:,.0f} {direction}\n\n@ ${price:,.4f}\n\n#CipherVault #Liquidation\n\n⚠️ Not Financial Advice. DYOR."
+        await post_to_telegram(output_video, caption)
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        print(f"❌  liquidation video error: {e}")
+        return {"error": str(e)}
+
+@with_video_lock
+async def generate_whale_movement(payload: dict):
+    try:
+        symbol = payload["symbol"]; side = payload["side"]
+        usd_value = payload["usd_value"]; price = payload["price"]
+        html = f"""
+        <html><head><style>
+            .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+            body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+            .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+            .title {{ font-size: 48px; color: #29a3ff; margin-bottom: 40px; font-weight: bold; }}
+            .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
+            .usd {{ font-size: 76px; color: #29a3ff; font-weight: bold; margin: 30px 0; }}
+            .side {{ font-size: 40px; color: #00ff41; margin: 20px 0; font-weight: bold; text-transform: uppercase; }}
+            .price {{ font-size: 30px; color: #888; margin-top: 20px; }}
+        </style></head><body>
+            <div class="container">
+                <div class="title">🐋 WHALE MOVEMENT 🐋</div>
+                <div class="symbol">{symbol}</div>
+                <div class="usd">${usd_value:,.0f}</div>
+                <div class="side">{side}</div>
+                <div class="price">@ ${price:,.4f}</div>
+            </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
+        </body></html>
+        """
+        screenshot = "/tmp/whale_movement.png"
+        await render_html_to_screenshot(html, screenshot)
+        output_video = f"/tmp/whale_movement_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        caption = f"🐋 WHALE MOVEMENT\n\n{symbol}\n${usd_value:,.0f} {side.upper()}\n\n@ ${price:,.4f}\n\n#CipherVault #Whale\n\n⚠️ Not Financial Advice. DYOR."
+        await post_to_telegram(output_video, caption)
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        print(f"❌  whale video error: {e}")
+        return {"error": str(e)}
+
+@with_video_lock
+async def generate_volatility_alert(payload: dict):
+    try:
+        symbol = payload["symbol"]; pct_change = payload["pct_change"]; price = payload["price"]
+        arrow = "🚀" if pct_change > 0 else "🔻"
+        color = "#00ff41" if pct_change > 0 else "#ff2b2b"
+        sign = "+" if pct_change > 0 else ""
+        html = f"""
+        <html><head><style>
+            .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+            body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+            .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+            .title {{ font-size: 46px; color: #ffaa00; margin-bottom: 40px; font-weight: bold; }}
+            .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
+            .pct {{ font-size: 84px; color: {color}; font-weight: bold; margin: 30px 0; }}
+            .price {{ font-size: 34px; color: #999; margin-top: 20px; }}
+        </style></head><body>
+            <div class="container">
+                <div class="title">⚡ BREAKING VOLATILITY ⚡</div>
+                <div class="symbol">{symbol}</div>
+                <div class="pct">{arrow} {sign}{pct_change}%</div>
+                <div class="price">Now: ${price:,.4f}</div>
+            </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
+        </body></html>
+        """
+        screenshot = "/tmp/volatility_alert.png"
+        await render_html_to_screenshot(html, screenshot)
+        output_video = f"/tmp/volatility_alert_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        caption = f"⚡ BREAKING VOLATILITY\n\n{symbol}\n{arrow} {sign}{pct_change}%\n\nNow: ${price:,.4f}\n\n#CipherVault #Volatility\n\n⚠️ Not Financial Advice. DYOR."
+        await post_to_telegram(output_video, caption)
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        print(f"❌  volatility video error: {e}")
+        return {"error": str(e)}
+
+@with_video_lock
+async def generate_new_listing(payload: dict):
+    try:
+        symbol = payload["symbol"]; exchange = payload["exchange"]
+        html = f"""
+        <html><head><style>
+            .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+            body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+            .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+            .title {{ font-size: 48px; color: #00ff41; margin-bottom: 40px; font-weight: bold; }}
+            .symbol {{ font-size: 68px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
+            .exchange {{ font-size: 40px; color: #888; margin: 20px 0; text-transform: uppercase; }}
+        </style></head><body>
+            <div class="container">
+                <div class="title">🆕 NEW LISTING 🆕</div>
+                <div class="symbol">{symbol}</div>
+                <div class="exchange">Now live on {exchange}</div>
+            </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
+        </body></html>
+        """
+        screenshot = "/tmp/new_listing.png"
+        await render_html_to_screenshot(html, screenshot)
+        output_video = f"/tmp/new_listing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        caption = f"🆕 NEW LISTING\n\n{symbol} is now live on {exchange.upper()}\n\n#CipherVault #NewListing\n\n⚠️ Not Financial Advice. DYOR."
+        await post_to_telegram(output_video, caption)
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        print(f"❌  new listing video error: {e}")
+        return {"error": str(e)}
+
+@with_video_lock
+async def generate_volume_spike(payload: dict):
+    try:
+        symbol = payload["symbol"]; exchange = payload["exchange"]
+        multiplier = payload["multiplier"]; volume = payload["volume"]
+        html = f"""
+        <html><head><style>
+            .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
+            body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
+            .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
+            .title {{ font-size: 46px; color: #b829ff; margin-bottom: 40px; font-weight: bold; }}
+            .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
+            .mult {{ font-size: 80px; color: #b829ff; font-weight: bold; margin: 30px 0; }}
+            .vol {{ font-size: 32px; color: #999; margin-top: 20px; }}
+            .exchange {{ font-size: 28px; color: #666; margin-top: 10px; text-transform: uppercase; }}
+        </style></head><body>
+            <div class="container">
+                <div class="title">📊 VOLUME SPIKE 📊</div>
+                <div class="symbol">{symbol}</div>
+                <div class="mult">{multiplier}x</div>
+                <div class="vol">24h Volume: ${volume:,.0f}</div>
+                <div class="exchange">{exchange}</div>
+            </div>
+            <div class="disclaimer">Not Financial Advice. DYOR.</div>
+        </body></html>
+        """
+        screenshot = "/tmp/volume_spike.png"
+        await render_html_to_screenshot(html, screenshot)
+        output_video = f"/tmp/volume_spike_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        overlay_on_background(screenshot, output_video)
+        caption = f"📊 VOLUME SPIKE\n\n{symbol} ({exchange.upper()})\n{multiplier}x average volume\n\n#CipherVault #VolumeSpike\n\n⚠️ Not Financial Advice. DYOR."
+        await post_to_telegram(output_video, caption)
+        return {"status": "success", "video": output_video}
+    except Exception as e:
+        print(f"❌  volume spike video error: {e}")
+        return {"error": str(e)}
+
+@app.on_event("startup")
+async def start_event_triggers():
+    asyncio.create_task(run_liquidation_listener(generate_liquidation_alert))
+    asyncio.create_task(run_whale_tracker(generate_whale_movement))
+    asyncio.create_task(run_volatility_monitor(generate_volatility_alert))
+    asyncio.create_task(run_listing_scanner(generate_new_listing, generate_volume_spike))
+    print("✅  Event triggers started: liquidation, whale, volatility, listings")
