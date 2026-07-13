@@ -656,41 +656,6 @@ async def generate_volatility_alert(payload: dict):
         return {"error": str(e)}
 
 @with_video_lock
-async def generate_new_listing(payload: dict):
-    try:
-        symbol = payload["symbol"]; exchange = payload["exchange"]
-        html = f"""
-        <html><head><style>
-            .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
-            body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
-            .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
-            .title {{ font-size: 48px; color: #00ff41; margin-bottom: 40px; font-weight: bold; }}
-            .symbol {{ font-size: 68px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
-            .exchange {{ font-size: 40px; color: #888; margin: 20px 0; text-transform: uppercase; }}
-        </style></head><body>
-            <div class="container">
-                <div class="glass-card">
-                <div class="title">🆕 NEW LISTING 🆕</div>
-                <div class="symbol">{symbol}</div>
-                <div class="exchange">Now live on {exchange}</div>
-            </div></div>
-            <div class="disclaimer">Not Financial Advice. DYOR.</div>
-        </body></html>
-        """
-        screenshot = "/tmp/new_listing.png"
-        await render_html_to_screenshot(html, screenshot)
-        output_video = f"/tmp/new_listing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-        overlay_on_background(screenshot, output_video)
-        caption = f"🆕 NEW LISTING\n\n{symbol} is now live on {exchange.upper()}\n\n#CipherVault #NewListing\n\n⚠️ Not Financial Advice. DYOR."
-        await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
-        return {"status": "success", "video": output_video}
-    except Exception as e:
-        print(f"❌  new listing video error: {e}")
-        return {"error": str(e)}
-
-@with_video_lock
 async def generate_volume_spike(payload: dict):
     try:
         symbol = payload["symbol"]; exchange = payload["exchange"]
@@ -735,7 +700,7 @@ async def start_event_triggers():
     asyncio.create_task(run_liquidation_listener(generate_liquidation_alert))
     asyncio.create_task(run_whale_tracker(generate_whale_movement))
     asyncio.create_task(run_volatility_monitor(generate_volatility_alert))
-    asyncio.create_task(run_listing_scanner(generate_new_listing, generate_volume_spike))
+    asyncio.create_task(run_listing_scanner(generate_volume_spike))
     print("✅  Event triggers started: liquidation, whale, volatility, listings")
 
 def post_to_social(video_path: str, caption: str):
