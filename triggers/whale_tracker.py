@@ -2,7 +2,7 @@ import asyncio, json, logging, websockets
 
 logger = logging.getLogger("whale_tracker")
 WATCH_SYMBOLS = ["btcusdt", "ethusdt", "solusdt", "bnbusdt", "xrpusdt"]
-MIN_WHALE_USD = 1_000_000
+MIN_WHALE_USD = 50_000_000
 
 def build_stream_url():
     streams = "/".join(f"{s}@aggTrade" for s in WATCH_SYMBOLS)
