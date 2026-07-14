@@ -463,58 +463,12 @@ async def generate_weekly_leaderboard():
 # ============================================================================
 from daily_videos import generate_educational_video, generate_news_impact_video
 
-@app.post("/test-educational")
-async def test_educational():
-    try:
-        result = await generate_educational_video()
-        return {"status": "success", "video": result}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/test-news")
-async def test_news():
-    try:
-        result = await generate_news_impact_video()
-        return {"status": "success", "video": result}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@app.get("/test-news-debug")
-async def test_news_debug():
-    from news_fetch import fetch_coindesk_headlines, fetch_cointelegraph_headlines, fetch_decrypt_headlines
-    return {
-        "coindesk_count": len(fetch_coindesk_headlines()),
-        "cointelegraph_count": len(fetch_cointelegraph_headlines()),
-        "decrypt_count": len(fetch_decrypt_headlines()),
-    }
-
-
-@app.get("/test-news-headlines")
-async def test_news_headlines():
-    from news_fetch import fetch_coindesk_headlines, fetch_cointelegraph_headlines, fetch_decrypt_headlines, extract_coin_from_headline
-    all_headlines = fetch_coindesk_headlines() + fetch_cointelegraph_headlines() + fetch_decrypt_headlines()
-    results = []
-    for h in all_headlines:
-        coin_id, symbol_hit = extract_coin_from_headline(h["title"])
-        results.append({"title": h["title"], "source": h["source"], "matched_coin": symbol_hit})
-    return {"headlines": results}
-
-
-@app.get("/test-price-debug")
-async def test_price_debug():
-    from news_fetch import get_price_change
-    result = get_price_change("bitcoin")
-    return {"price_data": result}
+from daily_videos import generate_educational_video, generate_news_impact_video
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 @app.post("/generate-educational")
 @with_video_lock
@@ -655,67 +609,19 @@ async def generate_volatility_alert(payload: dict):
         print(f"❌  volatility video error: {e}")
         return {"error": str(e)}
 
-@with_video_lock
-async def generate_volume_spike(payload: dict):
-    try:
-        symbol = payload["symbol"]; exchange = payload["exchange"]
-        multiplier = payload["multiplier"]; volume = payload["volume"]
-        html = f"""
-        <html><head><style>
-            .disclaimer {{ margin-top: 50px; text-align: center; font-size: 24px; color: rgba(255,255,255,0.85); font-family: 'Arial', sans-serif; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }}
-            body {{ margin: 0; padding: 60px; font-family: 'Arial', sans-serif; width: 100%; height: 100%; }}
-            .container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }}
-                .glass-card {{ background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.18); border-radius: 32px; padding: 60px 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }}
-            .title {{ font-size: 46px; color: #b829ff; margin-bottom: 40px; font-weight: bold; }}
-            .symbol {{ font-size: 64px; color: #ffffff; font-weight: bold; margin: 20px 0; }}
-            .mult {{ font-size: 80px; color: #b829ff; font-weight: bold; margin: 30px 0; }}
-            .vol {{ font-size: 32px; color: #999; margin-top: 20px; }}
-            .exchange {{ font-size: 28px; color: #666; margin-top: 10px; text-transform: uppercase; }}
-        </style></head><body>
-            <div class="container">
-                <div class="glass-card">
-                <div class="title">📊 VOLUME SPIKE 📊</div>
-                <div class="symbol">{symbol}</div>
-                <div class="mult">{multiplier}x</div>
-                <div class="vol">24h Volume: ${volume:,.0f}</div>
-                <div class="exchange">{exchange}</div>
-            </div></div>
-            <div class="disclaimer">Not Financial Advice. DYOR.</div>
-        </body></html>
-        """
-        screenshot = "/tmp/volume_spike.png"
-        await render_html_to_screenshot(html, screenshot)
-        output_video = f"/tmp/volume_spike_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-        overlay_on_background(screenshot, output_video)
-        caption = f"📊 VOLUME SPIKE\n\n{symbol} ({exchange.upper()})\n{multiplier}x average volume\n\n#CipherVault #VolumeSpike\n\n⚠️ Not Financial Advice. DYOR."
-        await post_to_telegram(output_video, caption)
-        post_to_social(output_video, caption)
-        return {"status": "success", "video": output_video}
-    except Exception as e:
-        print(f"❌  volume spike video error: {e}")
-        return {"error": str(e)}
-
 @app.on_event("startup")
 async def start_event_triggers():
     asyncio.create_task(run_liquidation_listener(generate_liquidation_alert))
     asyncio.create_task(run_whale_tracker(generate_whale_movement))
     asyncio.create_task(run_volatility_monitor(generate_volatility_alert))
-    asyncio.create_task(run_listing_scanner(generate_volume_spike))
-    print("✅  Event triggers started: liquidation, whale, volatility, listings")
+    print("✅  Event triggers started: liquidation, whale, volatility")
 
-def post_to_social(video_path: str, caption: str):
+def _post_to_zernio_account(zernio_key, platforms, video_path, caption):
     import os
-    zernio_key = os.getenv("ZERNIO_API_KEY")
-    ig_account = os.getenv("ZERNIO_INSTAGRAM_ACCOUNT_ID")
-    yt_account = os.getenv("ZERNIO_YOUTUBE_ACCOUNT_ID")
-
     if not zernio_key:
-        print("⚠️  Zernio API key not set, skipping social post.")
         return
-
     headers = {"Authorization": f"Bearer {zernio_key}"}
     filename = os.path.basename(video_path)
-
     presign_resp = requests.post(
         "https://zernio.com/api/v1/media/presign",
         headers=headers,
@@ -723,12 +629,11 @@ def post_to_social(video_path: str, caption: str):
         timeout=30,
     )
     if not presign_resp.ok:
-        print(f"❌ Zernio presign failed: {presign_resp.text}")
+        print(f"\u274c  Zernio presign failed: {presign_resp.text}")
         return
     presign_data = presign_resp.json()
     upload_url = presign_data["uploadUrl"]
     public_url = presign_data["publicUrl"]
-
     with open(video_path, "rb") as f:
         put_resp = requests.put(
             upload_url,
@@ -737,19 +642,10 @@ def post_to_social(video_path: str, caption: str):
             timeout=120,
         )
     if not put_resp.ok:
-        print(f"❌ Zernio upload failed: {put_resp.status_code}")
+        print(f"\u274c  Zernio upload failed: {put_resp.status_code}")
         return
-
-    platforms = []
-    if ig_account:
-        platforms.append({"platform": "instagram", "accountId": ig_account})
-    if yt_account:
-        platforms.append({"platform": "youtube", "accountId": yt_account})
-
     if not platforms:
-        print("⚠️  No Zernio accounts configured, skipping post.")
         return
-
     post_resp = requests.post(
         "https://zernio.com/api/v1/posts",
         headers=headers,
@@ -762,6 +658,76 @@ def post_to_social(video_path: str, caption: str):
         timeout=30,
     )
     if post_resp.ok:
-        print(f"✅ Posted to social: {post_resp.json().get('post', {}).get('_id')}")
+        post_id = post_resp.json().get("post", {}).get("_id")
+        print(f"\u2705  Posted to social: {post_id}")
     else:
-        print(f"❌ Zernio post failed: {post_resp.text}")
+        print(f"\u274c  Zernio post failed: {post_resp.text}")
+
+
+def post_to_social(video_path: str, caption: str):
+    import os
+
+    zernio_key_1 = os.getenv("ZERNIO_API_KEY")
+    ig_account = os.getenv("ZERNIO_INSTAGRAM_ACCOUNT_ID")
+    yt_account = os.getenv("ZERNIO_YOUTUBE_ACCOUNT_ID")
+    if not zernio_key_1:
+        print("\u26a0\ufe0f  Zernio API key (account 1) not set, skipping IG/YT post.")
+    else:
+        platforms_1 = []
+        if ig_account:
+            platforms_1.append({"platform": "instagram", "accountId": ig_account})
+        if yt_account:
+            platforms_1.append({"platform": "youtube", "accountId": yt_account})
+        if not platforms_1:
+            print("\u26a0\ufe0f  No account-1 Zernio accounts configured, skipping.")
+        else:
+            _post_to_zernio_account(zernio_key_1, platforms_1, video_path, caption)
+
+    zernio_key_2 = os.getenv("ZERNIO_API_KEY_2")
+    tiktok_account = os.getenv("ZERNIO_TIKTOK_ACCOUNT_ID")
+    facebook_account = os.getenv("ZERNIO_FACEBOOK_ACCOUNT_ID")
+    if not zernio_key_2:
+        print("\u26a0\ufe0f  Zernio API key (account 2) not set, skipping TikTok/Facebook post.")
+    else:
+        platforms_2 = []
+        if tiktok_account:
+            platforms_2.append({"platform": "tiktok", "accountId": tiktok_account})
+        if facebook_account:
+            platforms_2.append({"platform": "facebook", "accountId": facebook_account})
+        if not platforms_2:
+            print("\u26a0\ufe0f  No account-2 Zernio accounts configured, skipping.")
+        else:
+            _post_to_zernio_account(zernio_key_2, platforms_2, video_path, caption)
+
+
+from triggers.chart_video import generate_daily_market_video as _generate_daily_market_video_core
+
+
+async def send_telegram_message(text: str):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text}) as resp:
+                result = await resp.json()
+                print(f"✅  Telegram message posted: {result.get('ok')}")
+                return result
+    except Exception as e:
+        print(f"❌  Telegram message error: {e}")
+        return None
+
+
+@app.post("/generate-daily-market-video")
+@with_video_lock
+async def generate_daily_market_video_endpoint():
+    try:
+        video_path, title, description = await _generate_daily_market_video_core()
+        await post_to_telegram(video_path, title)
+        await send_telegram_message(description)
+        return {"status": "success", "video": video_path, "title": title}
+    except Exception as e:
+        print(f"❌  daily market video error: {e}")
+        return {"error": str(e)}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
